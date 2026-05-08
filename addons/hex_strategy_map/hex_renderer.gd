@@ -12,8 +12,8 @@ const DEFAULT_TERRAIN_COLORS: Dictionary = {
 }
 
 const DEFAULT_FOG_COLORS: Dictionary = {
-	FogOfWar.FogState.HIDDEN: Color(0.02, 0.02, 0.04, 1.0),
-	FogOfWar.FogState.EXPLORED: Color(0.05, 0.05, 0.08, 0.5),
+	FogState.HIDDEN: Color(0.02, 0.02, 0.04, 1.0),
+	FogState.EXPLORED: Color(0.05, 0.05, 0.08, 0.5),
 }
 
 const REACHABLE_COLOR := Color(0.9, 0.85, 0.3, 0.3)
@@ -139,7 +139,7 @@ func _create_highlight(points: PackedVector2Array) -> Polygon2D:
 func _create_fog_overlay(points: PackedVector2Array) -> Polygon2D:
 	var fog_overlay := Polygon2D.new()
 	fog_overlay.polygon = points
-	fog_overlay.color = _fog_colors.get(FogOfWar.FogState.HIDDEN, DEFAULT_FOG_COLORS[FogOfWar.FogState.HIDDEN])
+	fog_overlay.color = _fog_colors.get(FogState.HIDDEN, DEFAULT_FOG_COLORS[FogState.HIDDEN])
 	fog_overlay.name = "Fog"
 	return fog_overlay
 
@@ -267,20 +267,20 @@ func update_fog(hex_container: Node2D, grid: HexGrid, player_id: int = 0) -> voi
 		var icon: Label = node.get_node_or_null("CellIcon")
 
 		match state:
-			FogOfWar.FogState.VISIBLE:
+			FogState.VISIBLE:
 				_set_node_visibility(fog_overlay, false, Color())
 				_set_node_visibility(bg, true, Color())
 				_set_node_visibility(border, true, Color())
 				_set_node_visibility(icon, true, Color())
 
-			FogOfWar.FogState.EXPLORED:
-				_set_node_visibility(fog_overlay, true, _fog_colors.get(FogOfWar.FogState.EXPLORED, DEFAULT_FOG_COLORS[FogOfWar.FogState.EXPLORED]))
+			FogState.EXPLORED:
+				_set_node_visibility(fog_overlay, true, _fog_colors.get(FogState.EXPLORED, DEFAULT_FOG_COLORS[FogState.EXPLORED]))
 				_set_node_visibility(bg, true, Color())
 				_set_node_visibility(border, true, Color())
 				_set_node_visibility(icon, false, Color())
 
-			FogOfWar.FogState.HIDDEN:
-				_set_node_visibility(fog_overlay, true, _fog_colors.get(FogOfWar.FogState.HIDDEN, DEFAULT_FOG_COLORS[FogOfWar.FogState.HIDDEN]))
+			FogState.HIDDEN:
+				_set_node_visibility(fog_overlay, true, _fog_colors.get(FogState.HIDDEN, DEFAULT_FOG_COLORS[FogState.HIDDEN]))
 				_set_node_visibility(bg, false, Color())
 				_set_node_visibility(border, false, Color())
 				_set_node_visibility(icon, false, Color())
@@ -437,7 +437,7 @@ func _draw_fog(layer: BatchHexLayer, grid: HexGrid, hex_size: float, min_coord: 
 			if not cell:
 				continue
 			var state := cell.get_fog_state(_batch_fog_pid)
-			if state == FogOfWar.FogState.VISIBLE:
+			if state == FogState.VISIBLE:
 				continue
 			var pixel := HexGrid.offset_to_pixel(coord, hex_size)
 			var translated := PackedVector2Array()
