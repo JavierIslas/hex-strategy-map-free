@@ -59,10 +59,10 @@ func clear_visible(player_id: int) -> void:
 
 func get_fog_state(player_id: int = 0) -> int:
 	if is_visible_by(player_id):
-		return FogOfWar.FogState.VISIBLE
+		return FogState.VISIBLE
 	if is_explored_by(player_id):
-		return FogOfWar.FogState.EXPLORED
-	return FogOfWar.FogState.HIDDEN
+		return FogState.EXPLORED
+	return FogState.HIDDEN
 
 
 func serialize() -> Dictionary:

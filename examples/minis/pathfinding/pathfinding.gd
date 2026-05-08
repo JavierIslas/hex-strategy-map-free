@@ -1,10 +1,10 @@
 extends Node2D
-## Demo: PathFinder visual — Dijkstra, A* y Flow Field.
+## Demo: PathFinder visual — Dijkstra y A*.
 ## Click para seleccionar origen (verde), click para seleccionar destino (rojo).
 ## El camino se dibuja como highlight amarillo. Label muestra costo total.
 ## Tab: cambiar entre modos.
 
-enum Mode { DIJKSTRA_LIMITED, ASTAR, DIJKSTRA_UNLIMITED, FLOW_FIELD }
+enum Mode { DIJKSTRA_LIMITED, ASTAR, DIJKSTRA_UNLIMITED }
 
 var grid: HexGrid
 var renderer: HexRenderer
@@ -43,7 +43,7 @@ func _input(event: InputEvent) -> void:
 	camera_ctrl.handle_input(event)
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_TAB:
-		mode = (mode + 1) % 4
+		mode = (mode + 1) % 3
 		_update_mode_label()
 		_refresh_path()
 		return
@@ -94,11 +94,6 @@ func _refresh_path() -> void:
 		Mode.DIJKSTRA_UNLIMITED:
 			algo_name = "Dijkstra Unlimited"
 			path = PathFinder.find_path(origin, dest, grid)
-
-		Mode.FLOW_FIELD:
-			algo_name = "Flow Field"
-			var field := FlowField.build(grid, dest)
-			path = FlowField.trace_path(field, origin)
 
 	if path.is_empty():
 		info_label.text = tr("No hay camino entre %s y %s") % [origin, dest]
@@ -170,5 +165,5 @@ func _hide_fog_overlays() -> void:
 
 
 func _update_mode_label() -> void:
-	var names := ["Dijkstra (max 15 pts)", "A*", "Dijkstra Unlimited", "Flow Field"]
+	var names := ["Dijkstra (max 15 pts)", "A*", "Dijkstra Unlimited"]
 	mode_label.text = tr("Modo: %s (Tab para cambiar)") % tr(names[mode])
