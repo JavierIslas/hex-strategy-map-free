@@ -2,20 +2,35 @@ class_name BatchHexLayer
 extends Node2D
 ## Capa de renderizado batch para hexágonos. Usa _draw() directo en vez de nodos.
 ## Soporta viewport culling: solo dibuja hexes dentro del área visible de la cámara.
+##
+## HexRenderer crea tres instancias: BatchTerrain, BatchFog, BatchHighlight.
+## No instanciar directamente — usar HexRenderer.render_batch().
+##
+## draw_fn recibe (layer, grid, hex_size, min_coord, max_coord) y llama a los
+## métodos draw_* de CanvasItem (draw_colored_polygon, draw_polyline, etc.)
+## sobre el propio layer. El culling limita min/max_coord al viewport + margen.
+##
+## Para actualizar el contenido: llamar mark_dirty() — encola un queue_redraw().
+## Para seguir la cámara: llamar check_viewport() desde _process() del consumidor.
 
 var _grid: HexGrid
 var _hex_size: float
+## Callable inyectado por HexRenderer. Firma: (layer, grid, hex_size, min_coord, max_coord) → void.
 var _draw_fn: Callable
 var _viewport_origin: Vector2 = Vector2.INF
 var _dirty: bool = true
 
 
+## Crea la capa batch vinculada a [param grid] con el [param hex_size] dado.
+## [param draw_fn] es el callable que implementa el dibujo — provisto por HexRenderer.
 func _init(grid: HexGrid, hex_size: float, draw_fn: Callable) -> void:
 	_grid = grid
 	_hex_size = hex_size
 	_draw_fn = draw_fn
 
 
+## Calcula el AABB del viewport con margen de un hex y llama a _draw_fn
+## solo para las coordenadas dentro del área visible. Evita dibujar hexes fuera de pantalla.
 func _draw() -> void:
 	if not _draw_fn.is_valid() or not _grid:
 		return
@@ -40,6 +55,7 @@ func _draw() -> void:
 	_dirty = false
 
 
+## Marca la capa como sucia y encola un redraw en el próximo frame.
 func mark_dirty() -> void:
 	_dirty = true
 	queue_redraw()
