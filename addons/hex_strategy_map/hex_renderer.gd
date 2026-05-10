@@ -3,6 +3,15 @@ extends RefCounted
 ## Renderizado visual de hexágonos: creación, highlighting, niebla.
 ## Extraído de MapScene para separar presentación de orquestación.
 
+## Emitidas por hex en modo nodo-per-hex (no batch). El consumidor filtra
+## por botón (event.button_index == MOUSE_BUTTON_LEFT) si necesita restringir.
+## Acepta mouse y touch (InputEventScreenTouch).
+## Si el usuario presiona dentro del hex y suelta fuera, cell_released puede no
+## emitirse desde ese hex (comportamiento estándar de Area2D.input_event).
+## No asumir que cada cell_pressed tiene su cell_released pareado en el mismo coord.
+signal cell_pressed(coord: Vector2i, event: InputEvent)
+signal cell_released(coord: Vector2i, event: InputEvent)
+
 const DEFAULT_TERRAIN_COLORS: Dictionary = {
 	HexCell.Terrain.ROAD: Color(0.36, 0.25, 0.20),
 	HexCell.Terrain.PLAINS: Color(0.18, 0.35, 0.22),
@@ -22,6 +31,10 @@ const BORDER_WIDTH := 1.0
 const ICON_OFFSET := Vector2(-6, -6)
 const ICON_FONT_SIZE := 12
 
+## Sentinel que un color_fn puede retornar para indicar "no opino, usá terrain_colors".
+## RGBA negativo no es un color válido — no choca con ningún color real.
+const SKIP_COLOR := Color(-1, -1, -1, -1)
+
 var _terrain_colors: Dictionary
 var _cell_icon_fn: Callable
 var _fog_colors: Dictionary
@@ -33,6 +46,7 @@ var _overlay_fn: Callable
 var _reachable_color: Color
 var _border_color: Color
 var _border_width: float
+var _color_fn: Callable
 
 var _batch_fog_pid: int = 0
 var _batch_highlighted: Dictionary = {}
@@ -52,6 +66,7 @@ func _init(
 	reachable_color: Color = REACHABLE_COLOR,
 	border_color: Color = BORDER_COLOR,
 	border_width: float = BORDER_WIDTH,
+	color_fn: Callable = Callable(),   # (HexCell) → Color; retornar SKIP_COLOR = usar terrain_colors
 ) -> void:
 	_terrain_colors = terrain_colors
 	_cell_icon_fn = cell_icon_fn
@@ -64,14 +79,28 @@ func _init(
 	_reachable_color = reachable_color
 	_border_color = border_color
 	_border_width = border_width
+	_color_fn = color_fn
 
 
 static func _hex_node_name(coord: Vector2i) -> String:
 	return "Hex_%d_%d" % [coord.x, coord.y]
 
 
-static func _find_hex_node(container: Node2D, coord: Vector2i) -> Node2D:
+static func get_visual_for(container: Node2D, coord: Vector2i) -> Node2D:
 	return container.get_node_or_null(_hex_node_name(coord))
+
+
+static func get_visual_part(container: Node2D, coord: Vector2i, part_name: String) -> CanvasItem:
+	var hex := get_visual_for(container, coord)
+	if not hex:
+		return null
+	var node := hex.get_node_or_null(part_name)
+	if node == null:
+		return null
+	var result := node as CanvasItem
+	if result == null:
+		push_warning("HexRenderer.get_visual_part: '%s' existe pero no es CanvasItem (%s)" % [part_name, node.get_class()])
+	return result
 
 
 func create_hex_visual(hex_container: Node2D, coord: Vector2i, pixel: Vector2, cell: HexCell) -> void:
@@ -87,7 +116,22 @@ func create_hex_visual(hex_container: Node2D, coord: Vector2i, pixel: Vector2, c
 	hex_area.add_child(_create_highlight(points))
 	hex_area.add_child(_create_fog_overlay(points))
 	_add_overlays(hex_area, cell)
+	hex_area.input_event.connect(_on_hex_input.bind(coord))
 	hex_container.add_child(hex_area)
+
+
+func _on_hex_input(_viewport: Node, event: InputEvent, _shape_idx: int, coord: Vector2i) -> void:
+	var pressed: bool
+	if event is InputEventMouseButton:
+		pressed = event.pressed
+	elif event is InputEventScreenTouch:
+		pressed = event.pressed
+	else:
+		return
+	if pressed:
+		cell_pressed.emit(coord, event)
+	else:
+		cell_released.emit(coord, event)
 
 
 func _create_collision(points: PackedVector2Array) -> CollisionPolygon2D:
@@ -99,8 +143,16 @@ func _create_collision(points: PackedVector2Array) -> CollisionPolygon2D:
 func _make_terrain_polygon(cell: HexCell, points: PackedVector2Array) -> Polygon2D:
 	var poly := Polygon2D.new()
 	poly.polygon = points
-	poly.color = _terrain_colors.get(cell.terrain, Color.GRAY)
+	poly.color = _resolve_cell_color(cell)
 	return poly
+
+
+func _resolve_cell_color(cell: HexCell) -> Color:
+	if _color_fn.is_valid():
+		var c: Color = _color_fn.call(cell)
+		if c != SKIP_COLOR:
+			return c
+	return _terrain_colors.get(cell.terrain, Color.GRAY)
 
 
 func _create_border(points: PackedVector2Array) -> Line2D:
@@ -215,7 +267,7 @@ func update_reachable_highlight(hex_container: Node2D, grid: HexGrid, reachable:
 
 	for coord in reachable:
 		highlighted_hexes[coord] = true
-		var node := _find_hex_node(hex_container, coord)
+		var node := get_visual_for(hex_container, coord)
 		if node:
 			var highlight: Polygon2D = node.get_node_or_null("Highlight")
 			if highlight:
@@ -224,7 +276,7 @@ func update_reachable_highlight(hex_container: Node2D, grid: HexGrid, reachable:
 
 func _clear_highlights(hex_container: Node2D, highlighted_hexes: Dictionary) -> void:
 	for coord in highlighted_hexes:
-		var node := _find_hex_node(hex_container, coord)
+		var node := get_visual_for(hex_container, coord)
 		if node:
 			var highlight: Polygon2D = node.get_node_or_null("Highlight")
 			if highlight:
@@ -237,14 +289,14 @@ func update_los_highlight(hex_container: Node2D,
 		visible_color: Color = Color(0.3, 0.7, 1.0, 0.25),
 		blocked_color: Color = Color(1.0, 0.2, 0.2, 0.15)) -> void:
 	for coord in visible_coords:
-		var node := _find_hex_node(hex_container, coord)
+		var node := get_visual_for(hex_container, coord)
 		if node:
 			var h: Polygon2D = node.get_node_or_null("Highlight")
 			if h:
 				h.color = visible_color
 				h.visible = true
 	for coord in blocked_coords:
-		var node := _find_hex_node(hex_container, coord)
+		var node := get_visual_for(hex_container, coord)
 		if node:
 			var h: Polygon2D = node.get_node_or_null("Highlight")
 			if h:
@@ -256,7 +308,7 @@ func update_fog(hex_container: Node2D, grid: HexGrid, player_id: int = 0) -> voi
 	var all_cells := grid.get_all_cells()
 	for coord in all_cells:
 		var cell: HexCell = all_cells[coord]
-		var node := _find_hex_node(hex_container, coord)
+		var node := get_visual_for(hex_container, coord)
 		if not node:
 			continue
 
@@ -295,7 +347,7 @@ func _set_node_visibility(node: CanvasItem, visible: bool, color: Color) -> void
 
 
 func update_cell_visual(hex_container: Node2D, coord: Vector2i, cell: HexCell) -> void:
-	var node := _find_hex_node(hex_container, coord)
+	var node := get_visual_for(hex_container, coord)
 	if not node:
 		return
 	var old_bg := node.get_node_or_null("Bg")
@@ -307,6 +359,20 @@ func update_cell_visual(hex_container: Node2D, coord: Vector2i, cell: HexCell) -
 	var new_bg := _create_bg_node(cell, _make_terrain_polygon(cell, points))
 	node.add_child(new_bg)
 	node.move_child(new_bg, 0)
+
+
+## Fast-path para repintado de color sin recrear el nodo Bg.
+## Usa color_fn si está inyectado, sino terrain_colors. Polygon2D recibe
+## .color directo; Sprite2D/AnimatedSprite2D reciben .modulate.
+func refresh_cell_color(hex_container: Node2D, coord: Vector2i, cell: HexCell) -> void:
+	var bg := get_visual_part(hex_container, coord, "Bg")
+	if not bg:
+		return
+	var color := _resolve_cell_color(cell)
+	if bg is Polygon2D:
+		bg.color = color
+	else:
+		bg.modulate = color
 
 
 func render_edges(edge_container: Node2D, grid: HexGrid, edge_color: Color = Color(0.2, 0.5, 0.8, 0.8), edge_width: float = 2.0) -> void:
@@ -423,8 +489,7 @@ func _draw_terrain(layer: BatchHexLayer, grid: HexGrid, hex_size: float, min_coo
 			var translated := PackedVector2Array()
 			for p in pts:
 				translated.append(p + pixel)
-			var color: Color = _terrain_colors.get(cell.terrain, Color.GRAY)
-			layer.draw_colored_polygon(translated, color)
+			layer.draw_colored_polygon(translated, _resolve_cell_color(cell))
 			layer.draw_polyline(translated, _border_color, _border_width)
 
 
