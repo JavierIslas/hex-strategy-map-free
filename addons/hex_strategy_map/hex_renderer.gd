@@ -1,7 +1,21 @@
 class_name HexRenderer
 extends RefCounted
-## Renderizado visual de hexágonos: creación, highlighting, niebla.
-## Extraído de MapScene para separar presentación de orquestación.
+## Renderizado visual de hexágonos: creación de nodos, highlighting y niebla.
+##
+## Dos modos de uso:
+##   Nodo-per-hex (por defecto): cada hex es un Area2D con hijos Bg/Border/Highlight/Fog.
+##     Soporta iconos, texturas, animaciones, overlays y señales cell_pressed/cell_released.
+##   Batch mode (render_batch): dibuja con _draw() sin nodos individuales.
+##     Más eficiente para mapas grandes (200×200+). No soporta iconos ni texturas.
+##
+## Visuals del nodo-per-hex — hijos del Area2D "Hex_X_Y":
+##   "Bg"        → fondo de terreno (Polygon2D, Sprite2D o AnimatedSprite2D).
+##   "Border"    → borde Line2D.
+##   "Highlight" → overlay de alcance/selección (oculto por defecto).
+##   "Fog"       → overlay de niebla (visible por defecto — llamar update_fog() para actualizar).
+##   "CellIcon"  → Label opcional si cell_icon_fn está inyectado.
+##
+## Todos los Callables son opcionales — omitir los que no se necesitan.
 
 ## Emitidas por hex en modo nodo-per-hex (no batch). El consumidor filtra
 ## por botón (event.button_index == MOUSE_BUTTON_LEFT) si necesita restringir.
@@ -103,6 +117,9 @@ static func get_visual_part(container: Node2D, coord: Vector2i, part_name: Strin
 	return result
 
 
+## Crea el Area2D visual para [param cell] en [param pixel] y lo agrega a [param hex_container].
+## El nodo se nombra "Hex_X_Y" y contiene Bg, Border, Highlight, Fog y opcionalmente CellIcon.
+## Conecta Area2D.input_event → cell_pressed / cell_released.
 func create_hex_visual(hex_container: Node2D, coord: Vector2i, pixel: Vector2, cell: HexCell) -> void:
 	var hex_area := Area2D.new()
 	hex_area.position = pixel
@@ -262,6 +279,8 @@ func _as_bg(fallback: Polygon2D) -> Node2D:
 	return fallback
 
 
+## Muestra el overlay Highlight en los hexes del set [param reachable] y oculta el resto.
+## [param highlighted_hexes] se usa como cache mutable — pasar el mismo Dictionary entre llamadas.
 func update_reachable_highlight(hex_container: Node2D, grid: HexGrid, reachable: Dictionary, highlighted_hexes: Dictionary) -> void:
 	_clear_highlights(hex_container, highlighted_hexes)
 
@@ -283,6 +302,8 @@ func _clear_highlights(hex_container: Node2D, highlighted_hexes: Dictionary) -> 
 				highlight.visible = false
 
 
+## Colorea el overlay Highlight según LOS: azul para visibles, rojo para bloqueados.
+## [param visible_color] y [param blocked_color] son opcionales — usar los defaults para UI estándar.
 func update_los_highlight(hex_container: Node2D,
 		visible_coords: Array[Vector2i],
 		blocked_coords: Array[Vector2i] = [],
@@ -304,6 +325,10 @@ func update_los_highlight(hex_container: Node2D,
 				h.visible = true
 
 
+## Actualiza el overlay Fog de todos los hexes según el estado de niebla de [param player_id].
+## Recorre todo el grid — llamar solo cuando el estado cambia (no cada frame).
+## Para actualizaciones incrementales, conectar FogOfWar.fog_changed y llamar
+## update_cell_visual() solo para las celdas modificadas.
 func update_fog(hex_container: Node2D, grid: HexGrid, player_id: int = 0) -> void:
 	var all_cells := grid.get_all_cells()
 	for coord in all_cells:
@@ -346,6 +371,9 @@ func _set_node_visibility(node: CanvasItem, visible: bool, color: Color) -> void
 		node.color = color
 
 
+## Reemplaza el nodo Bg de la celda en [param coord] con uno nuevo basado en [param cell].
+## Más costoso que refresh_cell_color() — usar cuando el tipo de visual cambia
+## (ej. terreno que pasa de Polygon2D a Sprite2D). Para solo cambiar color, usar refresh_cell_color().
 func update_cell_visual(hex_container: Node2D, coord: Vector2i, cell: HexCell) -> void:
 	var node := get_visual_for(hex_container, coord)
 	if not node:
@@ -375,6 +403,8 @@ func refresh_cell_color(hex_container: Node2D, coord: Vector2i, cell: HexCell) -
 		bg.modulate = color
 
 
+## Dibuja todos los edges del grid como Line2D en [param edge_container].
+## Limpia los hijos anteriores antes de dibujar — llamar después de set_edge() si cambiaron.
 func render_edges(edge_container: Node2D, grid: HexGrid, edge_color: Color = Color(0.2, 0.5, 0.8, 0.8), edge_width: float = 2.0) -> void:
 	for child in edge_container.get_children():
 		child.queue_free()
@@ -414,6 +444,10 @@ const _BATCH_FOG := "BatchFog"
 const _BATCH_HIGHLIGHT := "BatchHighlight"
 
 
+## Inicializa el modo batch: crea tres BatchHexLayer (terreno, niebla, highlight)
+## en [param container] y descarta cualquier hijo anterior.
+## Después de llamar este método, usar update_batch_fog/highlight y batch_track_viewport().
+## No compatible con cell_pressed/cell_released ni con iconos o texturas.
 func render_batch(container: Node2D, grid: HexGrid) -> void:
 	for child in container.get_children():
 		child.queue_free()
@@ -435,11 +469,15 @@ func render_batch(container: Node2D, grid: HexGrid) -> void:
 	container.add_child(highlight)
 
 
+## Marca la capa de niebla batch como sucia para [param player_id].
+## El redraw ocurre en el próximo frame. Llamar después de FogOfWar.update_visibility().
 func update_batch_fog(container: Node2D, grid: HexGrid, player_id: int = 0) -> void:
 	_batch_fog_pid = player_id
 	_get_batch_layer(container, _BATCH_FOG).mark_dirty()
 
 
+## Actualiza el highlight batch con el set [param reachable].
+## [param highlighted_hexes] es el mismo cache mutable que en update_reachable_highlight().
 func update_batch_reachable_highlight(container: Node2D, grid: HexGrid, reachable: Dictionary, highlighted_hexes: Dictionary) -> void:
 	_batch_highlighted.clear()
 	for coord in highlighted_hexes:
@@ -450,6 +488,8 @@ func update_batch_reachable_highlight(container: Node2D, grid: HexGrid, reachabl
 	_get_batch_layer(container, _BATCH_HIGHLIGHT).mark_dirty()
 
 
+## Actualiza el highlight batch con LOS: azul para visibles, rojo para bloqueados.
+## Limpia el reachable highlight anterior si había uno activo.
 func update_batch_los_highlight(container: Node2D,
 		visible_coords: Array[Vector2i],
 		blocked_coords: Array[Vector2i] = []) -> void:
@@ -459,10 +499,14 @@ func update_batch_los_highlight(container: Node2D,
 	_get_batch_layer(container, _BATCH_HIGHLIGHT).mark_dirty()
 
 
+## Marca la capa de terreno batch como sucia después de cambiar el terreno de [param coord].
+## El grid entero se redibuja (batch no tiene granularidad por celda).
 func update_batch_cell(container: Node2D, grid: HexGrid, coord: Vector2i) -> void:
 	_get_batch_layer(container, _BATCH_TERRAIN).mark_dirty()
 
 
+## Llama check_viewport() en las tres capas batch. Invocar desde _process() del consumidor.
+## Marca dirty automáticamente cuando la cámara se movió más de un hex desde el último redraw.
 func batch_track_viewport(container: Node2D) -> void:
 	for name in [_BATCH_TERRAIN, _BATCH_FOG, _BATCH_HIGHLIGHT]:
 		var layer: BatchHexLayer = container.get_node_or_null(name)

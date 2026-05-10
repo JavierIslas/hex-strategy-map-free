@@ -2,16 +2,30 @@ class_name PathFinder
 extends RefCounted
 ## Pathfinding unificado para mapas hexagonales.
 ## Dijkstra + A* con heap binario para O((V+E) log V).
+##
+## Todos los métodos públicos son estáticos — no instanciar PathFinder.
+## Los costos se leen de HexGrid.terrain_cost y de los edges (HexGrid.edges).
+##
+## Métodos principales:
+##   find_reachable()     → hexes alcanzables con N puntos de movimiento (Dijkstra).
+##   find_path()          → camino óptimo dentro de un reachable set (Dijkstra).
+##   find_path_astar()    → camino óptimo sin límite de costo (A*, más rápido en mapas grandes).
+##
+## Para movimiento de grupos hacia un mismo destino, usar FlowField en lugar
+## de llamar find_path_astar() N veces — es equivalente pero hace un solo pase Dijkstra.
 
 
 class MinHeap:
 	## Heap binario mínimo. Items: [cost: float, coord: Vector2i].
+	## Usado internamente por _search para la cola de prioridad.
 	var _data: Array = []
 
+	## Inserta [param item] manteniendo la propiedad de heap mínimo.
 	func push(item: Array) -> void:
 		_data.append(item)
 		_bubble_up(_data.size() - 1)
 
+	## Extrae y retorna el item con menor costo. Retorna [] si está vacío.
 	func pop() -> Array:
 		if _data.is_empty():
 			return []
@@ -22,6 +36,7 @@ class MinHeap:
 		_sink_down(0)
 		return root
 
+	## Retorna true si el heap no tiene elementos.
 	func is_empty() -> bool:
 		return _data.is_empty()
 
@@ -53,12 +68,14 @@ class MinHeap:
 			idx = smallest
 
 
-## Core Dijkstra/A* search loop. Returns cost_so_far: Dictionary[Vector2i, float].
-## neighbor_filter: (coord: Vector2i, neighbor: Vector2i) -> bool
-## on_better_path: (neighbor: Vector2i, from_coord: Vector2i, new_cost: float) -> void
-## should_exit: (coord: Vector2i) -> bool
-## priority_fn: (coord: Vector2i, g_cost: float) -> float
-## cost_fn: (from: Vector2i, to: Vector2i) -> float  — costo de moverse de from a to
+## Núcleo Dijkstra/A* unificado. Retorna cost_so_far: Dictionary[Vector2i, float].
+## Todos los métodos públicos delegan aquí con distintos callables.
+##
+## [param neighbor_filter]: (coord, neighbor) → bool — si incluir el vecino.
+## [param on_better_path]: (neighbor, from_coord, new_cost) → void — callback al relajar un nodo.
+## [param should_exit]: (coord) → bool — terminar temprano (útil para A* con destino fijo).
+## [param priority_fn]: (coord, g_cost) → float — g_cost para Dijkstra, g+h para A*.
+## [param cost_fn]: (from, to) → float — opcional; por defecto usa terrain_cost + edge_cost del grid.
 static func _search(
 	start: Vector2i,
 	grid: HexGrid,
@@ -102,7 +119,9 @@ static func _search(
 	return cost_so_far
 
 
-## Retorna Dictionary[Vector2i, float] → costo acumulado para cada hex alcanzable.
+## Retorna Dictionary[Vector2i, float] con cada hex alcanzable y su costo acumulado.
+## Hexes con costo > [param max_cost] quedan fuera del resultado.
+## Pasar el resultado a find_path() para trazar el camino a un destino específico.
 static func find_reachable(origin: Vector2i, max_cost: float, grid: HexGrid) -> Dictionary:
 	if grid == null or not grid.is_valid(origin) or max_cost < 0.0:
 		return {}
@@ -116,9 +135,10 @@ static func find_reachable(origin: Vector2i, max_cost: float, grid: HexGrid) -> 
 	)
 
 
-## Encuentra el camino más corto entre from y to usando Dijkstra.
-## Si reachable se proporciona, solo expande vecinos dentro del set alcanzable.
-## Si reachable está vacío, expande todo el grid pasable (sin límite de costo).
+## Encuentra el camino más corto entre [param from] y [param to] usando Dijkstra.
+## Si [param reachable] se proporciona, expande solo dentro del set alcanzable.
+## Si [param reachable] está vacío, expande todo el grid pasable (sin límite de costo).
+## Retorna Array[Vector2i] sin incluir [param from]. Retorna [] si no hay camino.
 static func find_path(from: Vector2i, to: Vector2i, grid: HexGrid, reachable: Dictionary = {}) -> Array[Vector2i]:
 	if not _validate_path_args(from, to, grid, reachable.is_empty()):
 		return []
@@ -142,7 +162,10 @@ static func find_path(from: Vector2i, to: Vector2i, grid: HexGrid, reachable: Di
 	return _reconstruct_path(came_from, from, to)
 
 
-## A* con heurística cube distance. Produce paths óptimos (admisible cuando min terrain cost >= 1.0).
+## Camino óptimo con heurística cube distance (A*). Más rápido que find_path() sin reachable
+## en mapas grandes porque descarta zonas alejadas del destino.
+## Produce paths óptimos cuando el costo mínimo de terreno >= 1.0 (heurística admisible).
+## Retorna [] si no hay camino.
 static func find_path_astar(from: Vector2i, to: Vector2i, grid: HexGrid) -> Array[Vector2i]:
 	if not _validate_path_args(from, to, grid, true):
 		return []
@@ -159,11 +182,14 @@ static func find_path_astar(from: Vector2i, to: Vector2i, grid: HexGrid) -> Arra
 	return _reconstruct_path(came_from, from, to)
 
 
+## Filtro de vecinos por defecto: el vecino debe ser válido en el grid y pasable.
 static func _default_neighbor_filter(grid: HexGrid) -> Callable:
 	return func(_c: Vector2i, n: Vector2i) -> bool:
 		return grid.is_valid(n) and grid.is_passable(n)
 
 
+## Valida precondiciones comunes: grid no nulo, from válido, from != to.
+## Si check_to_passable = true, también verifica que to sea válido y pasable.
 static func _validate_path_args(from: Vector2i, to: Vector2i, grid: HexGrid, check_to_passable: bool) -> bool:
 	if grid == null or not grid.is_valid(from):
 		return false
@@ -174,6 +200,8 @@ static func _validate_path_args(from: Vector2i, to: Vector2i, grid: HexGrid, che
 	return true
 
 
+## Reconstruye el camino desde el diccionario came_from recorriendo hacia atrás desde to.
+## Retorna [] si to no fue alcanzado (no está en came_from).
 static func _reconstruct_path(came_from: Dictionary, from: Vector2i, to: Vector2i) -> Array[Vector2i]:
 	if not came_from.has(to):
 		return []
