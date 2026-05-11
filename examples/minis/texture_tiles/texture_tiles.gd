@@ -21,6 +21,7 @@ func _ready() -> void:
 		{}, Callable(), {}, HexGrid.HEX_SIZE,
 		Callable(), _texture_fn
 	)
+	renderer.cell_pressed.connect(_on_cell_pressed)
 	for coord in grid.cells:
 		renderer.create_hex_visual(hex_container, coord, HexGrid.offset_to_pixel(coord), grid.cells[coord])
 	_hide_fog_overlays()
@@ -35,15 +36,16 @@ func _process(delta: float) -> void:
 
 func _input(event: InputEvent) -> void:
 	camera_ctrl.handle_input(event)
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var world_pos := camera_ctrl.screen_to_world(event.global_position)
-		var coord := HexGrid.pixel_to_offset(world_pos)
+
+
+func _on_cell_pressed(coord: Vector2i, event: InputEvent) -> void:
+	if event.button_index == MOUSE_BUTTON_LEFT:
 		_show_cell_info(coord)
 
 
 func _hide_fog_overlays() -> void:
-	for hex_area in hex_container.get_children():
-		var fog: Polygon2D = hex_area.get_node_or_null("Fog")
+	for coord in grid.cells:
+		var fog := HexRenderer.get_visual_part(hex_container, coord, "Fog")
 		if fog:
 			fog.visible = false
 
