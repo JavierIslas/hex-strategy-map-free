@@ -35,6 +35,8 @@ var _visible_by: Dictionary = {}    # player_id (int) → bool
 var tag: int = 0
 ## Metadatos libres de juego. El addon no los lee ni escribe — estructura libre.
 var metadata: Dictionary = {}
+## Elevación de la celda. 0.0 = nivel del mar. Usada por LOS con elevación (HexGrid.get_line_of_sight).
+var elevation: float = 0.0
 
 
 ## Crea la celda en [param cell_coord] con [param cell_terrain].
@@ -115,6 +117,7 @@ func serialize() -> Dictionary:
 		"explored_by": explored_serial,
 		"tag": tag,
 		"metadata": metadata,
+		"elevation": elevation,
 	}
 
 
@@ -136,4 +139,5 @@ static func deserialize(data: Dictionary) -> HexCell:
 		cell.mark_explored(int(key))
 	cell.tag = data.get("tag", 0)
 	cell.metadata = data.get("metadata", {})
+	cell.elevation = data.get("elevation", 0.0)
 	return cell

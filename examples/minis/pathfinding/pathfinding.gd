@@ -26,6 +26,7 @@ func _ready() -> void:
 	_scatter_terrain()
 
 	renderer = HexRenderer.new()
+	renderer.cell_pressed.connect(_on_cell_pressed)
 	for coord in grid.cells:
 		renderer.create_hex_visual(hex_container, coord, HexGrid.offset_to_pixel(coord), grid.cells[coord])
 	_hide_fog_overlays()
@@ -46,25 +47,28 @@ func _input(event: InputEvent) -> void:
 		mode = (mode + 1) % 3
 		_update_mode_label()
 		_refresh_path()
+
+
+func _on_cell_pressed(coord: Vector2i, event: InputEvent) -> void:
+	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if not grid.is_valid(coord):
+		return
+	if not grid.is_passable(coord):
+		info_label.text = tr("Ese hex no es pasable (%s)") % coord
 		return
 
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var world_pos := camera_ctrl.screen_to_world(event.global_position)
-		var coord := HexGrid.pixel_to_offset(world_pos)
-		if not grid.is_valid(coord):
-			return
-		if not grid.is_passable(coord):
-			info_label.text = tr("Ese hex no es pasable (%s)") % coord
-			return
-
-		if origin == Vector2i(-1, -1):
-			origin = coord
-			dest = Vector2i(-1, -1)
-			_set_hex_color(coord, Color(0.2, 0.8, 0.2, 0.5))
-			info_label.text = tr("Origen: %s — ahora click destino") % coord
-		else:
-			dest = coord
-			_refresh_path()
+	if origin == Vector2i(-1, -1):
+		origin = coord
+		dest = Vector2i(-1, -1)
+		renderer.refresh_cell_color(hex_container, coord, grid.get_cell(coord))
+		var bg := HexRenderer.get_visual_part(hex_container, coord, "Bg")
+		if bg:
+			bg.color = Color(0.2, 0.8, 0.2, 0.5)
+		info_label.text = tr("Origen: %s — ahora click destino") % coord
+	else:
+		dest = coord
+		_refresh_path()
 
 
 func _refresh_path() -> void:
@@ -82,8 +86,8 @@ func _refresh_path() -> void:
 			var reachable := PathFinder.find_reachable(origin, 15.0, grid)
 			if not reachable.has(dest):
 				info_label.text = tr("Destino fuera de alcance (max 15 pts)")
-				_set_hex_color(origin, Color(0.2, 0.8, 0.2, 0.5))
-				_set_hex_color(dest, Color(0.8, 0.2, 0.2, 0.5))
+				_set_temp_color(origin, Color(0.2, 0.8, 0.2, 0.5))
+				_set_temp_color(dest, Color(0.8, 0.2, 0.2, 0.5))
 				return
 			path = PathFinder.find_path(origin, dest, grid, reachable)
 
@@ -97,8 +101,8 @@ func _refresh_path() -> void:
 
 	if path.is_empty():
 		info_label.text = tr("No hay camino entre %s y %s") % [origin, dest]
-		_set_hex_color(origin, Color(0.2, 0.8, 0.2, 0.5))
-		_set_hex_color(dest, Color(0.8, 0.2, 0.2, 0.5))
+		_set_temp_color(origin, Color(0.2, 0.8, 0.2, 0.5))
+		_set_temp_color(dest, Color(0.8, 0.2, 0.2, 0.5))
 		return
 
 	var total_cost := 0.0
@@ -108,11 +112,11 @@ func _refresh_path() -> void:
 			step_cost += grid.get_edge_cost(path[i - 1], path[i])
 			total_cost += step_cost
 		if path[i] == origin:
-			_set_hex_color(path[i], Color(0.2, 0.8, 0.2, 0.5))
+			_set_temp_color(path[i], Color(0.2, 0.8, 0.2, 0.5))
 		elif path[i] == dest:
-			_set_hex_color(path[i], Color(0.8, 0.2, 0.2, 0.5))
+			_set_temp_color(path[i], Color(0.8, 0.2, 0.2, 0.5))
 		else:
-			_set_hex_color(path[i], Color(0.9, 0.85, 0.3, 0.4))
+			_set_temp_color(path[i], Color(0.9, 0.85, 0.3, 0.4))
 
 	info_label.text = tr("%s: %d pasos | Costo: %.1f | %s → %s") % [
 		algo_name, path.size(), total_cost, origin, dest
@@ -137,29 +141,19 @@ func _scatter_terrain() -> void:
 
 
 func _reset_all_colors() -> void:
-	for hex_area in hex_container.get_children():
-		var bg: Polygon2D = hex_area.get_node_or_null("Bg")
-		if bg:
-			var parts := hex_area.name.split("_")
-			var coord := Vector2i(int(parts[1]), int(parts[2]))
-			var cell := grid.get_cell(coord)
-			if cell:
-				bg.color = HexRenderer.DEFAULT_TERRAIN_COLORS.get(cell.terrain, Color.GRAY)
+	for coord in grid.cells:
+		renderer.refresh_cell_color(hex_container, coord, grid.get_cell(coord))
 
 
-func _set_hex_color(coord: Vector2i, color: Color) -> void:
-	var hex_name := "Hex_%d_%d" % [coord.x, coord.y]
-	var hex_area: Area2D = hex_container.get_node_or_null(hex_name)
-	if not hex_area:
-		return
-	var bg: Polygon2D = hex_area.get_node_or_null("Bg")
+func _set_temp_color(coord: Vector2i, color: Color) -> void:
+	var bg := HexRenderer.get_visual_part(hex_container, coord, "Bg")
 	if bg:
 		bg.color = color
 
 
 func _hide_fog_overlays() -> void:
-	for hex_area in hex_container.get_children():
-		var fog: Polygon2D = hex_area.get_node_or_null("Fog")
+	for coord in grid.cells:
+		var fog := HexRenderer.get_visual_part(hex_container, coord, "Fog")
 		if fog:
 			fog.visible = false
 

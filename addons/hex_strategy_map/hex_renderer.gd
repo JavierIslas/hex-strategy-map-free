@@ -61,6 +61,7 @@ var _reachable_color: Color
 var _border_color: Color
 var _border_width: float
 var _color_fn: Callable
+var _fog_material: ShaderMaterial
 
 var _batch_fog_pid: int = 0
 var _batch_highlighted: Dictionary = {}
@@ -81,19 +82,21 @@ func _init(
 	border_color: Color = BORDER_COLOR,
 	border_width: float = BORDER_WIDTH,
 	color_fn: Callable = Callable(),   # (HexCell) → Color; retornar SKIP_COLOR = usar terrain_colors
-) -> void:
-	_terrain_colors = terrain_colors
-	_cell_icon_fn = cell_icon_fn
-	_fog_colors = fog_colors if fog_colors else DEFAULT_FOG_COLORS
-	_hex_size = hex_size
-	_tile_visual_fn = tile_visual_fn
-	_texture_fn = texture_fn
-	_animation_fn = animation_fn
-	_overlay_fn = overlay_fn
-	_reachable_color = reachable_color
-	_border_color = border_color
-	_border_width = border_width
-	_color_fn = color_fn
+		fog_material: ShaderMaterial = null,  # ShaderMaterial para fog con gradient edges + animated noise
+	) -> void:
+		_terrain_colors = terrain_colors
+		_cell_icon_fn = cell_icon_fn
+		_fog_colors = fog_colors if fog_colors else DEFAULT_FOG_COLORS
+		_hex_size = hex_size
+		_tile_visual_fn = tile_visual_fn
+		_texture_fn = texture_fn
+		_animation_fn = animation_fn
+		_overlay_fn = overlay_fn
+		_reachable_color = reachable_color
+		_border_color = border_color
+		_border_width = border_width
+		_color_fn = color_fn
+		_fog_material = fog_material
 
 
 static func _hex_node_name(coord: Vector2i) -> String:
@@ -208,8 +211,15 @@ func _create_highlight(points: PackedVector2Array) -> Polygon2D:
 func _create_fog_overlay(points: PackedVector2Array) -> Polygon2D:
 	var fog_overlay := Polygon2D.new()
 	fog_overlay.polygon = points
-	fog_overlay.color = _fog_colors.get(FogState.HIDDEN, DEFAULT_FOG_COLORS[FogState.HIDDEN])
 	fog_overlay.name = "Fog"
+	var hidden_color := _fog_colors.get(FogState.HIDDEN, DEFAULT_FOG_COLORS[FogState.HIDDEN])
+	if _fog_material:
+		var mat: ShaderMaterial = _fog_material.duplicate()
+		mat.set_shader_parameter("hex_radius", _hex_size)
+		mat.set_shader_parameter("fog_color", hidden_color)
+		fog_overlay.material = mat
+	else:
+		fog_overlay.color = hidden_color
 	return fog_overlay
 
 
@@ -367,8 +377,16 @@ func _set_node_visibility(node: CanvasItem, visible: bool, color: Color) -> void
 	if not node:
 		return
 	node.visible = visible
-	if color != Color() and node is Polygon2D:
-		node.color = color
+	if color == Color():
+		return
+	var poly := node as Polygon2D
+	if not poly:
+		return
+	var mat := poly.material as ShaderMaterial
+	if mat:
+		mat.set_shader_parameter("fog_color", color)
+	else:
+		poly.color = color
 
 
 ## Reemplaza el nodo Bg de la celda en [param coord] con uno nuevo basado en [param cell].
@@ -435,6 +453,19 @@ func render_edges(edge_container: Node2D, grid: HexGrid, edge_color: Color = Col
 		line.default_color = edge_color
 		line.name = "Edge_%s_%s" % [str(a), str(b)]
 		edge_container.add_child(line)
+
+
+
+## Crea un ShaderMaterial con el shader de fog incluido en el addon.
+## Útil como punto de partida — el consumidor puede modificar los uniforms antes de pasarlo al renderer.
+## Retorna null si el shader no se encuentra (ej. addon instalado en ruta no estándar).
+static func create_default_fog_material() -> ShaderMaterial:
+	var shader := load("res://addons/hex_strategy_map/fog_overlay.gdshader")
+	if not shader:
+		return null
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	return mat
 
 
 # === Batch mode ===

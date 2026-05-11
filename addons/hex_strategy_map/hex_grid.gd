@@ -377,36 +377,53 @@ static func _cube_to_offset(cube: Vector3i) -> Vector2i:
 
 
 ## blocking_terrains vacío → ningún terreno bloquea (retorna true siempre salvo celdas inválidas).
-func get_line_of_sight(from: Vector2i, to: Vector2i, blocking_terrains: Array[int] = []) -> bool:
+## [param elevation_fn]: (coord: Vector2i) → float. Si se proporciona, bloquea LOS cuando
+## un hex intermedio tiene elevación mayor a la línea de visión interpolada entre from y to.
+## Callable vacío = sin check de elevación (backward compat).
+func get_line_of_sight(from: Vector2i, to: Vector2i, blocking_terrains: Array[int] = [], elevation_fn: Callable = Callable()) -> bool:
 	if from == to:
 		return true
 	var line := _hex_line(from, to)
-	for coord in line:
+	var has_elevation := elevation_fn.is_valid()
+	var from_elev: float = 0.0
+	var to_elev: float = 0.0
+	if has_elevation:
+		from_elev = float(elevation_fn.call(from))
+		to_elev = float(elevation_fn.call(to))
+	var count := line.size()
+	for i in range(count):
+		var coord: Vector2i = line[i]
 		if coord == from or coord == to:
 			continue
 		var cell := get_cell(coord)
 		if cell and cell.terrain in blocking_terrains:
 			return false
+		if has_elevation:
+			var cell_elev: float = float(elevation_fn.call(coord))
+			var t: float = float(i) / float(count - 1)
+			var line_height := from_elev + (to_elev - from_elev) * t
+			if cell_elev > line_height:
+				return false
 	return true
 
 
 ## Retorna los hexes dentro de [param radius] desde [param origin] con línea de visión libre.
 ## [param blocking_terrains]: terrenos que interrumpen la LOS (ej. MOUNTAIN, FOREST).
-## El propio [param origin] siempre se incluye.
-func get_visible_cells(origin: Vector2i, radius: int, blocking_terrains: Array[int] = []) -> Array[Vector2i]:
+## [param elevation_fn]: ver get_line_of_sight(). El propio [param origin] siempre se incluye.
+func get_visible_cells(origin: Vector2i, radius: int, blocking_terrains: Array[int] = [], elevation_fn: Callable = Callable()) -> Array[Vector2i]:
 	var result: Array[Vector2i] = [origin]
 	for r in range(1, radius + 1):
 		for coord in get_ring(origin, r):
-			if get_line_of_sight(origin, coord, blocking_terrains):
+			if get_line_of_sight(origin, coord, blocking_terrains, elevation_fn):
 				result.append(coord)
 	return result
 
 
 ## Retorna los hexes dentro de [param radius] que NO tienen LOS desde [param origin].
 ## Complemento de get_visible_cells(). Útil para resaltar zonas en sombra.
-func get_blocked_cells(origin: Vector2i, radius: int, blocking_terrains: Array[int] = []) -> Array[Vector2i]:
+func get_blocked_cells(origin: Vector2i, radius: int, blocking_terrains: Array[int] = [], elevation_fn: Callable = Callable()) -> Array[Vector2i]:
 	var visible := {}
-	for c in get_visible_cells(origin, radius, blocking_terrains):
+	for c in get_visible_cells(origin, radius, blocking_terrains, elevation_fn):
 		visible[c] = true
 	var result: Array[Vector2i] = []
 	for r in range(1, radius + 1):
