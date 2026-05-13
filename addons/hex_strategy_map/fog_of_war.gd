@@ -69,12 +69,13 @@ func reveal_around(player_id: int, center: Vector2i, radius: int) -> void:
 
 ## Revela los hexes visibles desde [param center] con radio [param radius] y LOS.
 ## [param blocking_terrains]: terrenos que bloquean la visión (ej. MOUNTAIN, FOREST).
+## [param elevation_fn]: (coord: Vector2i) → float — elevación por celda para LOS con altura.
 ## Hexes bloqueados por terreno no quedan VISIBLE (sí pueden quedar EXPLORED de antes).
 func reveal_with_los(player_id: int, center: Vector2i, radius: int,
-		blocking_terrains: Array[int] = []) -> void:
+		blocking_terrains: Array[int] = [], elevation_fn: Callable = Callable()) -> void:
 	if grid == null:
 		return
-	var visible := grid.get_visible_cells(center, radius, blocking_terrains)
+	var visible := grid.get_visible_cells(center, radius, blocking_terrains, elevation_fn)
 	for coord in visible:
 		_reveal_coord(player_id, coord)
 
