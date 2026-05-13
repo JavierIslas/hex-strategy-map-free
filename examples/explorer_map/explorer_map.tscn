@@ -1,0 +1,29 @@
+[gd_scene load_steps=2 format=3 uid="uid://explorer_map"]
+
+[ext_resource type="Script" path="res://examples/explorer_map/explorer_map.gd" id="1_script"]
+
+[node name="ExplorerMap" type="Node2D"]
+script = ExtResource("1_script")
+
+[node name="HexContainer" type="Node2D" parent="."]
+
+[node name="CursorContainer" type="Node2D" parent="."]
+
+[node name="Camera" type="Camera2D" parent="."]
+zoom = Vector2(1.5, 1.5)
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="InfoLabel" type="Label" parent="UI"]
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 600.0
+offset_bottom = 30.0
+text = "Click para mover | Der+drag: pan | Scroll: zoom"
+
+[node name="ExploredLabel" type="Label" parent="UI"]
+offset_left = 10.0
+offset_top = 32.0
+offset_right = 300.0
+offset_bottom = 52.0
+text = "Explorado: 0/168"
