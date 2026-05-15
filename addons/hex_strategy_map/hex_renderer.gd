@@ -49,6 +49,14 @@ const ICON_FONT_SIZE := 12
 ## RGBA negativo no es un color válido — no choca con ningún color real.
 const SKIP_COLOR := Color(-1, -1, -1, -1)
 
+## Estrategia de dibujo usada por render_edges().
+##   CENTERS — Line2D del centro de un hex al centro del otro (default, backward-compat).
+##             Útil para "caminos", "ríos navegables" o conexiones que cruzan ambos hex.
+##   SHARED_BORDER — Segmento centrado en el borde compartido, perpendicular a la línea
+##                   centro-a-centro y de longitud HEX_SIZE. Útil para "muros", "fronteras"
+##                   u obstáculos que separan dos hex sin cubrir ninguno.
+enum EdgeRenderMode { CENTERS, SHARED_BORDER }
+
 var _terrain_colors: Dictionary
 var _cell_icon_fn: Callable
 var _fog_colors: Dictionary
@@ -423,7 +431,8 @@ func refresh_cell_color(hex_container: Node2D, coord: Vector2i, cell: HexCell) -
 
 ## Dibuja todos los edges del grid como Line2D en [param edge_container].
 ## Limpia los hijos anteriores antes de dibujar — llamar después de set_edge() si cambiaron.
-func render_edges(edge_container: Node2D, grid: HexGrid, edge_color: Color = Color(0.2, 0.5, 0.8, 0.8), edge_width: float = 2.0) -> void:
+## [param mode] controla la geometría del segmento: CENTERS (default) o SHARED_BORDER.
+func render_edges(edge_container: Node2D, grid: HexGrid, edge_color: Color = Color(0.2, 0.5, 0.8, 0.8), edge_width: float = 2.0, mode: EdgeRenderMode = EdgeRenderMode.CENTERS) -> void:
 	for child in edge_container.get_children():
 		child.queue_free()
 
@@ -444,15 +453,29 @@ func render_edges(edge_container: Node2D, grid: HexGrid, edge_color: Color = Col
 			continue
 		drawn[pair_key] = true
 
-		var pixel_a := HexGrid.offset_to_pixel(a, _hex_size)
-		var pixel_b := HexGrid.offset_to_pixel(b, _hex_size)
+		var endpoints := _compute_edge_endpoints(a, b, mode)
 		var line := Line2D.new()
-		line.add_point(pixel_a)
-		line.add_point(pixel_b)
+		line.add_point(endpoints[0])
+		line.add_point(endpoints[1])
 		line.width = edge_width
 		line.default_color = edge_color
 		line.name = "Edge_%s_%s" % [str(a), str(b)]
 		edge_container.add_child(line)
+
+
+# Endpoints del Line2D según modo. SHARED_BORDER usa el midpoint del par de centros
+# y el vector perpendicular al segmento centro-a-centro; la longitud (_hex_size) corresponde
+# al lado del hex regular pointy-top (que coincide con el radio centro→vértice).
+func _compute_edge_endpoints(a: Vector2i, b: Vector2i, mode: EdgeRenderMode) -> Array:
+	var pixel_a := HexGrid.offset_to_pixel(a, _hex_size)
+	var pixel_b := HexGrid.offset_to_pixel(b, _hex_size)
+	if mode == EdgeRenderMode.SHARED_BORDER:
+		var midpoint := (pixel_a + pixel_b) * 0.5
+		var direction := (pixel_b - pixel_a).normalized()
+		var perpendicular := Vector2(-direction.y, direction.x)
+		var half := perpendicular * (_hex_size * 0.5)
+		return [midpoint - half, midpoint + half]
+	return [pixel_a, pixel_b]
 
 
 
