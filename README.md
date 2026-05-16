@@ -89,7 +89,7 @@ HexGrid(92) · HexCell(24) · PathFinder(36) · HexRenderer(39) · BatchHexLayer
 
 Need unit movement, turn management, flow fields, procedural generation, combat, save/load, or a minimap?
 
-**[Hex Strategy Map Pro](https://godotfoundry.com)** adds:
+**[Hex Strategy Map Pro](https://dimcairion.itch.io/hex-strategy-map)** adds:
 
 - **FlowField** — Flow field for efficient group movement (one computation serves N units)
 - **MapToken** — Unit movement with configurable points, path following, signals
