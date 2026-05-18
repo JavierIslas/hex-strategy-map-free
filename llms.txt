@@ -1,0 +1,90 @@
+# Hex Strategy Map
+
+> A hexagonal grid toolkit for Godot 4.6+. Render-agnostic simulation
+> (deterministic, JSON-serializable) plus a bundled 2D renderer. Built
+> for turn-based strategy, tactical RPGs / CRPGs, hex-and-counter
+> wargames, hex crawls, roguelikes, and hex puzzles.
+
+The addon ships in two tiers. The **free tier** (MIT, distributed via the
+[Godot Asset Library](https://godotengine.org/asset-library/asset/5136),
+the [Godot Store](https://store.godotengine.org/asset/javier-islas/hex-strategy-map),
+and [itch.io](https://dimcairion.itch.io/hex-strategy-map-free)) is the
+foundation: hex math, pathfinding, fog of war, rendering, camera. The
+**Pro tier** (commercial, royalty-free, on
+[itch.io](https://dimcairion.itch.io/hex-strategy-map)) adds units, turn
+manager, combat, procedural maps, texture-based fog of war that scales
+to 250×250 grids, Tiled JSON import, save/load, a visual `@tool` map
+editor, and a 2-player skirmish demo.
+
+The core design principle is **logic / rendering separation**: every
+module that drives game state (HexGrid, PathFinder, FlowField, FogOfWar)
+operates on coordinates and data only. The bundled 2D renderer is
+optional. You can drive the same logic from a 3D scene, a headless
+server, or any custom renderer. With a seeded RNG, runs are
+reproducible — suitable for play-by-email, lockstep multiplayer,
+headless servers, replays, and AI/ML training environments.
+
+All game-specific behavior is injectable via Callables (terrain costs,
+visibility formulas, tile visuals, neighbor filters, combat outcomes).
+No subclassing, no magic strings.
+
+## Free tier — core modules (MIT)
+
+- [HexGrid](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/hex_grid.gd): offset/cube coordinates, neighbors, distances, terrain & edge costs, elevation-aware line-of-sight via injectable callable
+- [HexCell](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/hex_cell.gd): cell model with terrain, tag, metadata dictionary, per-player fog state, elevation
+- [PathFinder](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/path_finder.gd): Dijkstra (`find_reachable`) and A* (`find_path_astar`), with injectable neighbor filters
+- [HexRenderer](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/hex_renderer.gd): per-hex Polygon2D / Sprite2D / AnimatedSprite2D rendering with textures, atlases, overlays, icons, edges
+- [BatchHexLayer](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/batch_hex_layer.gd): 200×200+ maps via single `_draw()` with viewport AABB culling and dirty tracking
+- [FogOfWar](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/fog_of_war.gd): 3-state per-player fog (Hidden / Explored / Visible) with LOS-based reveal
+- [MapCamera](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/map_camera.gd): follow target, drag, zoom, edge-scroll
+
+## Pro tier — additional modules (commercial, royalty-free)
+
+Source code is not public; the linked Pro API reference describes the
+full surface area of each module.
+
+- [MapToken](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#maptoken): unit movement with configurable movement points, path following, signals, serialization
+- [TurnManager](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#turnmanager): turn cycle with player phases, interval hooks, signals
+- [CombatResolver](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#combatresolver): pluggable combat with injectable damage, terrain bonus, flanking, outcome callables
+- [FlowField](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#flowfield): one-to-many pathfinding. Build once, `trace_path` is ~22 000× faster than rebuilding — efficient for groups sharing a destination
+- [MapGenerator](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#mapgenerator): procedural terrain via noise, rivers, scatterable locations
+- [UnitRegistry](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#unitregistry): centralized unit tracking by owner, coordinate index with auto-sync, stacking rules
+- [HexMiniMap](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#hexminimap): minimap rendering with per-player fog and token markers
+- [TiledImporter](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#tiledimporter): import [Tiled Map Editor](https://www.mapeditor.org/) JSON maps directly into HexGrid
+- [SaveManager](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#savemanager): JSON-based save/load slot management for grid + units + fog + turn state
+- [FogTextureRenderer](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#fogtexturerenderer) *(new in 1.4.0)*: texture-based fog of war for 250×250 grids. Single quad + shader sampling a visibility texture; bilinear smoothing for continuous fog instead of hexagonal holes. Incremental `update_cell` is ~84 000× faster than the full sweep
+- [HexMapNode](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md#hexmapnode): `@tool` Node2D for painting terrain visually in the Godot editor with auto-serialization
+
+## Documentation
+
+- [README](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/README.md): top-level overview, quick start, signals reference
+- [Getting started](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/getting_started.md): tutorial for the free tier
+- [API reference (free)](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/api_reference.md): free-tier API
+- [API reference (Pro)](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/pro_api_reference.md): Pro-tier API
+- [Customization guide](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/customization.md): how to inject terrain costs, visibility formulas, tile visuals, combat rules
+- [Benchmarks](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/docs/benchmarks.md): reference numbers per module, hardware notes, guide on choosing between A*, cached Dijkstra and FlowField
+
+## Where to get it
+
+- Free tier (MIT):
+  - [Godot Asset Library](https://godotengine.org/asset-library/asset/5136)
+  - [Godot Store](https://store.godotengine.org/asset/javier-islas/hex-strategy-map)
+  - [itch.io free](https://dimcairion.itch.io/hex-strategy-map-free)
+  - [GitHub mirror](https://github.com/JavierIslas/hex-strategy-map-free) — source of the distributed free package
+- Pro tier:
+  - [itch.io](https://dimcairion.itch.io/hex-strategy-map) — one-time purchase, commercial license, unlimited projects, no royalties
+
+## Not for
+
+This addon is intentionally narrow. It is **not** the right choice for:
+
+- **Square or isometric grids** — use Godot's built-in `TileMap`
+- **Free-form 3D navigation on meshes** — use `NavigationServer3D`
+- **A full RPG framework** — provides the tactical / map layer only. Stats, inventory, dialogue, quests, UI are your game's responsibility
+- **Real-time action games** — designed around turn-based and step-based simulation. The grid model assumes discrete state changes, not continuous motion
+
+## Requirements
+
+- Godot 4.6+
+- No external dependencies (pure GDScript)
+- 269 automated tests (free) / 598 automated tests (full) via gdUnit4
