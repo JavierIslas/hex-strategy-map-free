@@ -503,6 +503,16 @@ const _BATCH_HIGHLIGHT := "BatchHighlight"
 ## Después de llamar este método, usar update_batch_fog/highlight y batch_track_viewport().
 ## No compatible con cell_pressed/cell_released ni con iconos o texturas.
 func render_batch(container: Node2D, grid: HexGrid) -> void:
+	var ignored: PackedStringArray = []
+	if _cell_icon_fn.is_valid():
+		ignored.append("cell_icon_fn")
+	if _tile_visual_fn.is_valid():
+		ignored.append("tile_visual_fn")
+	if _overlay_fn.is_valid():
+		ignored.append("overlay_fn")
+	if not ignored.is_empty():
+		push_warning("HexRenderer.render_batch(): los siguientes callables serán ignorados en modo batch: %s. Renderizalos en una capa separada (ver examples/large_world)." % ", ".join(ignored))
+
 	for child in container.get_children():
 		child.queue_free()
 

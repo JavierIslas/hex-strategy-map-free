@@ -1,6 +1,27 @@
 # Hex Strategy Map
 
-Hexagonal grid toolkit for Godot 4.6+ with coordinates, pathfinding, fog of war, rendering, and camera controls. The foundation for any hex-based strategy game.
+Hexagonal grid toolkit for Godot 4.6+ with coordinates, pathfinding, fog of war, rendering, and camera controls. The foundation for any hex-based strategy game, tactical RPG, hex-and-counter wargame, hex crawl, or roguelike.
+
+## Why this tier
+
+- **Deterministic, JSON-serializable simulation.** Logic runs on coordinates and data, with no rendering or hidden randomness — suitable for play-by-email, lockstep multiplayer, headless servers, replays, and AI/ML training environments.
+- **One toolkit for the hex fundamentals.** Coordinates, pathfinding (Dijkstra + A*), 3-state fog of war with LOS, rendering, batch mode for large maps, and camera — packaged together.
+
+## Not for
+
+- Square or isometric grids — use Godot's built-in `TileMap`.
+- Free-form 3D movement on meshes — use `NavigationServer3D`.
+- Real-time action games — designed around turn-based and step-based simulation.
+
+## Logic vs rendering
+
+The simulation layer is **render-agnostic**: `HexGrid`, `HexCell`, `PathFinder`
+and `FogOfWar` operate on coordinates and data — no rendering dependency.
+Drive them from a 3D scene, a headless server, or any custom renderer.
+
+The bundled `HexRenderer`, `BatchHexLayer` and `MapCamera` are the **2D
+rendering layer** (Polygon2D / Sprite2D / Node2D under Camera2D). Examples
+ship as 2D scenes; replace those modules if you target 3D.
 
 ## Features
 
@@ -78,6 +99,10 @@ Everything is injectable via constructor parameters and callables:
 | `grid_only/` | HexGrid + HexRenderer basics |
 | `pathfinding/` | PathFinder — Dijkstra vs A* vs Flow Field comparison |
 | `texture_tiles/` | HexRenderer with texture/atlas/animated sprite support |
+
+## Benchmarks
+
+Microbenchmarks for the free-tier modules live in `benchmarks/`. Run with `godot --headless --script benchmarks/run_benchmarks.gd`. See [`docs/benchmarks.md`](docs/benchmarks.md) for reference results and a guide on picking between A*, cached Dijkstra and FlowField.
 
 ## Testing
 
