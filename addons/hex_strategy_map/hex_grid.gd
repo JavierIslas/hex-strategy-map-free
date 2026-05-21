@@ -46,6 +46,12 @@ var edges: Dictionary = {}  # String (edge_key) → Dictionary { type: int, cost
 var terrain_cost: Dictionary = {}
 var edge_cost: Dictionary = {}
 var hex_size: float = 32.0
+# Mínimo costo entre los terrenos PRESENTES en cells. Lazy: se calcula
+# al primer pedido y se invalida en set_terrain/generate_cells. Computar sobre
+# terrain_cost (el dict completo) daría un mínimo más bajo que el real cuando
+# el grid sólo usa un subconjunto de terrenos, lo que mantiene la heurística
+# admisible pero floja — exactamente lo que find_path_astar quiere evitar.
+var _min_passable_terrain_cost_cache: float = -1.0
 
 
 ## Crea el grid con las dimensiones y tablas de costos indicadas.
@@ -74,6 +80,7 @@ func generate_cells(default_terrain: int = HexCell.Terrain.PLAINS) -> void:
 		for x in width:
 			var coord := Vector2i(x, y)
 			cells[coord] = HexCell.new(coord, default_terrain)
+	_min_passable_terrain_cost_cache = -1.0
 
 
 ## Retorna la HexCell en [param coord], o null si la coordenada no existe.
@@ -91,6 +98,7 @@ func set_terrain(coord: Vector2i, terrain: int) -> void:
 	var cell := get_cell(coord)
 	if cell:
 		cell.terrain = terrain
+		_min_passable_terrain_cost_cache = -1.0
 
 
 ## Retorna true si [param coord] existe en el grid (fue generado por generate_cells).
@@ -100,15 +108,33 @@ func is_valid(coord: Vector2i) -> bool:
 
 ## Retorna true si la celda existe y su costo de terreno > 0 (no intransitable).
 func is_passable(coord: Vector2i) -> bool:
-	var cell := get_cell(coord)
-	if not cell:
-		return false
-	return terrain_cost.get(cell.terrain, -1.0) > 0
+	return _get_terrain_cost(coord) > 0
 
 
 ## Retorna el costo de movimiento de entrar a [param coord].
 ## Retorna -1.0 si la celda no existe o el terreno es intransitable.
 func get_movement_cost(coord: Vector2i) -> float:
+	return _get_terrain_cost(coord)
+
+
+## Mínimo costo entre los terrenos efectivamente PRESENTES en cells.
+## Lazy: se calcula al primer pedido y se invalida cuando cambia el terreno.
+## Retorna 1.0 si el grid está vacío o no tiene terrenos pasables.
+## PathFinder.find_path_astar lo usa como factor de la heurística para mantener
+## admisibilidad sin sacrificar tightness en mapas con un único terreno.
+func min_passable_terrain_cost() -> float:
+	if _min_passable_terrain_cost_cache < 0.0:
+		var min_cost := INF
+		for cell: HexCell in cells.values():
+			var c: float = terrain_cost.get(cell.terrain, -1.0)
+			if c > 0.0 and c < min_cost:
+				min_cost = c
+		_min_passable_terrain_cost_cache = 1.0 if min_cost == INF else min_cost
+	return _min_passable_terrain_cost_cache
+
+
+## Costo de terreno para [param coord]. -1.0 si la celda no existe o terreno no mapeado.
+func _get_terrain_cost(coord: Vector2i) -> float:
 	var cell := get_cell(coord)
 	if not cell:
 		return -1.0
@@ -226,7 +252,7 @@ static func offset_to_pixel(coord: Vector2i, size: float = HEX_SIZE) -> Vector2:
 static func pixel_to_offset(pixel: Vector2, size: float = HEX_SIZE) -> Vector2i:
 	var q: float = (HEX_SQRT3 / 3.0 * pixel.x - 1.0 / 3.0 * pixel.y) / size
 	var r: float = (2.0 / 3.0 * pixel.y) / size
-	return cube_round(q, r).to_offset()
+	return _cube_to_offset(cube_round(q, r))
 
 
 ## Offset a cube coordinates (para distancia y dirección).
@@ -252,6 +278,17 @@ static func hex_polygon_points(size: float, scale_factor: float = 0.95) -> Packe
 		var angle := PI / 3.0 * i - PI / 6.0
 		pts.append(Vector2(cos(angle), sin(angle)) * size * scale_factor)
 	return pts
+
+
+## Traslada los puntos de un polígono hex a una posición pixel concreta.
+## Helper extraído para evitar el patrón duplicado de `for p in pts: translated.append(p + pixel)`
+## en HexRenderer (batch), HexMiniMap, HexMapNode y FogTextureRenderer.
+static func translated_hex_polygon(points: PackedVector2Array, pixel: Vector2) -> PackedVector2Array:
+	var result := PackedVector2Array()
+	result.resize(points.size())
+	for i in points.size():
+		result[i] = points[i] + pixel
+	return result
 
 
 ## Vecinos de un hex (6 direcciones, odd-r offset).
@@ -302,27 +339,13 @@ static func _hex_line(a: Vector2i, b: Vector2i) -> Array[Vector2i]:
 			ca.y + (cb.y - ca.y) * t,
 			ca.z + (cb.z - ca.z) * t,
 		)
-		result.append(cube_round(lerped.x, lerped.z).to_offset())
+		result.append(_cube_to_offset(cube_round(lerped.x, lerped.z)))
 	return result
 
 
 # --- Internos ---
 
-class CubeCoord:
-	var x: int
-	var y: int
-	var z: int
-
-	func _init(cx: int = 0, cy: int = 0, cz: int = 0) -> void:
-		x = cx
-		y = cy
-		z = cz
-
-	func to_offset() -> Vector2i:
-		return HexGrid._cube_to_offset(Vector3i(x, y, z))
-
-
-static func cube_round(q: float, r: float) -> CubeCoord:
+static func cube_round(q: float, r: float) -> Vector3i:
 	var s: float = -q - r
 	var rq: float = roundf(q)
 	var rr: float = roundf(r)
@@ -334,7 +357,7 @@ static func cube_round(q: float, r: float) -> CubeCoord:
 		rq = -rr - rs
 	elif r_diff > s_diff:
 		rr = -rq - rs
-	return CubeCoord.new(int(rq), int(-rq - rr), int(rr))
+	return Vector3i(int(rq), int(-rq - rr), int(rr))
 
 
 static func _cube_to_float(c: Vector3i) -> Vector3:
@@ -412,10 +435,9 @@ func get_line_of_sight(from: Vector2i, to: Vector2i, blocking_terrains: Array[in
 ## [param elevation_fn]: ver get_line_of_sight(). El propio [param origin] siempre se incluye.
 func get_visible_cells(origin: Vector2i, radius: int, blocking_terrains: Array[int] = [], elevation_fn: Callable = Callable()) -> Array[Vector2i]:
 	var result: Array[Vector2i] = [origin]
-	for r in range(1, radius + 1):
-		for coord in get_ring(origin, r):
-			if get_line_of_sight(origin, coord, blocking_terrains, elevation_fn):
-				result.append(coord)
+	result.append_array(_get_ring_filtered(origin, radius,
+		func(coord: Vector2i) -> bool:
+			return get_line_of_sight(origin, coord, blocking_terrains, elevation_fn)))
 	return result
 
 
@@ -425,10 +447,16 @@ func get_blocked_cells(origin: Vector2i, radius: int, blocking_terrains: Array[i
 	var visible := {}
 	for c in get_visible_cells(origin, radius, blocking_terrains, elevation_fn):
 		visible[c] = true
+	return _get_ring_filtered(origin, radius,
+		func(coord: Vector2i) -> bool: return not visible.has(coord))
+
+
+## Itera los rings 1..radius desde [param origin] y retorna coords que pasan [param include].
+func _get_ring_filtered(origin: Vector2i, radius: int, include: Callable) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
 	for r in range(1, radius + 1):
 		for coord in get_ring(origin, r):
-			if not visible.has(coord):
+			if include.call(coord):
 				result.append(coord)
 	return result
 

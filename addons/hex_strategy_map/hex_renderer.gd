@@ -220,7 +220,7 @@ func _create_fog_overlay(points: PackedVector2Array) -> Polygon2D:
 	var fog_overlay := Polygon2D.new()
 	fog_overlay.polygon = points
 	fog_overlay.name = "Fog"
-	var hidden_color := _fog_colors.get(FogState.HIDDEN, DEFAULT_FOG_COLORS[FogState.HIDDEN])
+	var hidden_color: Color = _fog_colors.get(FogState.HIDDEN, DEFAULT_FOG_COLORS[FogState.HIDDEN])
 	if _fog_material:
 		var mat: ShaderMaterial = _fog_material.duplicate()
 		mat.set_shader_parameter("hex_radius", _hex_size)
@@ -537,7 +537,7 @@ func render_batch(container: Node2D, grid: HexGrid) -> void:
 ## El redraw ocurre en el próximo frame. Llamar después de FogOfWar.update_visibility().
 func update_batch_fog(container: Node2D, grid: HexGrid, player_id: int = 0) -> void:
 	_batch_fog_pid = player_id
-	_get_batch_layer(container, _BATCH_FOG).mark_dirty()
+	_mark_batch_dirty(container, _BATCH_FOG)
 
 
 ## Actualiza el highlight batch con el set [param reachable].
@@ -549,7 +549,7 @@ func update_batch_reachable_highlight(container: Node2D, grid: HexGrid, reachabl
 	for coord in reachable:
 		highlighted_hexes[coord] = true
 	_batch_highlighted = highlighted_hexes.duplicate()
-	_get_batch_layer(container, _BATCH_HIGHLIGHT).mark_dirty()
+	_mark_batch_dirty(container, _BATCH_HIGHLIGHT)
 
 
 ## Actualiza el highlight batch con LOS: azul para visibles, rojo para bloqueados.
@@ -560,13 +560,13 @@ func update_batch_los_highlight(container: Node2D,
 	_batch_los_visible = visible_coords
 	_batch_los_blocked = blocked_coords
 	_batch_highlighted.clear()
-	_get_batch_layer(container, _BATCH_HIGHLIGHT).mark_dirty()
+	_mark_batch_dirty(container, _BATCH_HIGHLIGHT)
 
 
 ## Marca la capa de terreno batch como sucia después de cambiar el terreno de [param coord].
 ## El grid entero se redibuja (batch no tiene granularidad por celda).
 func update_batch_cell(container: Node2D, grid: HexGrid, coord: Vector2i) -> void:
-	_get_batch_layer(container, _BATCH_TERRAIN).mark_dirty()
+	_mark_batch_dirty(container, _BATCH_TERRAIN)
 
 
 ## Llama check_viewport() en las tres capas batch. Invocar desde _process() del consumidor.
@@ -578,10 +578,17 @@ func batch_track_viewport(container: Node2D) -> void:
 			layer.check_viewport()
 
 
+func _mark_batch_dirty(container: Node2D, name: String) -> void:
+	var layer := _get_batch_layer(container, name)
+	if layer:
+		layer.mark_dirty()
+
+
 static func _get_batch_layer(container: Node2D, name: String) -> BatchHexLayer:
 	var layer: BatchHexLayer = container.get_node_or_null(name)
 	if not layer:
 		push_error("HexRenderer: batch layer '%s' not found — call render_batch() first" % name)
+		return null
 	return layer
 
 
@@ -594,9 +601,7 @@ func _draw_terrain(layer: BatchHexLayer, grid: HexGrid, hex_size: float, min_coo
 			if not cell:
 				continue
 			var pixel := HexGrid.offset_to_pixel(coord, hex_size)
-			var translated := PackedVector2Array()
-			for p in pts:
-				translated.append(p + pixel)
+			var translated := HexGrid.translated_hex_polygon(pts, pixel)
 			layer.draw_colored_polygon(translated, _resolve_cell_color(cell))
 			layer.draw_polyline(translated, _border_color, _border_width)
 
@@ -613,9 +618,7 @@ func _draw_fog(layer: BatchHexLayer, grid: HexGrid, hex_size: float, min_coord: 
 			if state == FogState.VISIBLE:
 				continue
 			var pixel := HexGrid.offset_to_pixel(coord, hex_size)
-			var translated := PackedVector2Array()
-			for p in pts:
-				translated.append(p + pixel)
+			var translated := HexGrid.translated_hex_polygon(pts, pixel)
 			var fog_color: Color = _fog_colors.get(state, DEFAULT_FOG_COLORS.get(state, Color.BLACK))
 			layer.draw_colored_polygon(translated, fog_color)
 
@@ -638,7 +641,5 @@ func _draw_highlight(layer: BatchHexLayer, grid: HexGrid, hex_size: float, min_c
 		if coord.x < min_coord.x or coord.x > max_coord.x or coord.y < min_coord.y or coord.y > max_coord.y:
 			continue
 		var pixel := HexGrid.offset_to_pixel(coord, hex_size)
-		var translated := PackedVector2Array()
-		for p in pts:
-			translated.append(p + pixel)
+		var translated := HexGrid.translated_hex_polygon(pts, pixel)
 		layer.draw_colored_polygon(translated, coords_to_draw[coord_key])
