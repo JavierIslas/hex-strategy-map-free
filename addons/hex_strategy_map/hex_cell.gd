@@ -54,7 +54,7 @@ func get_pixel_position() -> Vector2:
 
 ## Retorna true si location_type indica una locación válida (> 0).
 func has_location() -> bool:
-	return location_type != 0 and location_type >= 0
+	return location_type > 0
 
 
 ## Retorna true si tag != 0 (la celda tiene una etiqueta asignada).
@@ -65,36 +65,54 @@ func has_tag() -> bool:
 ## Retorna true si [param player_id] exploró esta celda al menos una vez.
 ## Una celda explorada puede seguir en niebla (EXPLORED) si salió del rango de visión.
 func is_explored_by(player_id: int) -> bool:
+	if player_id < 0:
+		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+		return false
 	return _explored_by.get(player_id, false)
 
 
 ## Retorna true si [param player_id] tiene visión activa sobre esta celda.
 ## La visión activa se pierde al llamar clear_visible() — típicamente al inicio de turno.
 func is_visible_by(player_id: int) -> bool:
+	if player_id < 0:
+		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+		return false
 	return _visible_by.get(player_id, false)
 
 
 ## Marca la celda como explorada por [param player_id]. La exploración es permanente.
 ## También llamar mark_visible() si el jugador actualmente tiene visión sobre ella.
 func mark_explored(player_id: int) -> void:
+	if player_id < 0:
+		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+		return
 	_explored_by[player_id] = true
 
 
 ## Marca la celda como actualmente visible por [param player_id].
 ## No implica que esté explorada — llamar mark_explored() en paralelo si corresponde.
 func mark_visible(player_id: int) -> void:
+	if player_id < 0:
+		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+		return
 	_visible_by[player_id] = true
 
 
 ## Elimina la visión activa de [param player_id]. La celda queda EXPLORED si fue vista antes.
 ## Llamar al inicio de cada turno antes de recalcular la visibilidad.
 func clear_visible(player_id: int) -> void:
+	if player_id < 0:
+		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+		return
 	_visible_by.erase(player_id)
 
 
 ## Retorna el FogState consolidado para [param player_id].
 ## Prioridad: VISIBLE > EXPLORED > HIDDEN. Usar player_id = 0 para single-player.
 func get_fog_state(player_id: int = 0) -> int:
+	if player_id < 0:
+		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+		return FogState.HIDDEN
 	if is_visible_by(player_id):
 		return FogState.VISIBLE
 	if is_explored_by(player_id):
@@ -121,11 +139,15 @@ func serialize() -> Dictionary:
 	}
 
 
-static func _parse_coord(data: Dictionary, key: String, default: Vector2i = Vector2i.ZERO) -> Vector2i:
-	var raw = data.get(key, [0, 0])
-	if raw is Array and raw.size() >= 2:
-		return Vector2i(int(raw[0]), int(raw[1]))
+## Convierte un Array [x, y] a Vector2i. Retorna [param default] si el array es inválido.
+static func parse_coord_array(arr, default: Vector2i = Vector2i.ZERO) -> Vector2i:
+	if arr is Array and arr.size() >= 2:
+		return Vector2i(int(arr[0]), int(arr[1]))
 	return default
+
+
+static func _parse_coord(data: Dictionary, key: String, default: Vector2i = Vector2i.ZERO) -> Vector2i:
+	return parse_coord_array(data.get(key, [0, 0]), default)
 
 
 ## Reconstruye una HexCell desde un Dictionary generado por serialize().

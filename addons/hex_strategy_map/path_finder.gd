@@ -1,5 +1,25 @@
 class_name PathFinder
 extends RefCounted
+
+# find_path_astar combina dos correcciones que solo funcionan juntas. Sacar
+# cualquiera de las dos regresa por uno o dos órdenes de magnitud en mapas
+# uniform-cost. El devlog docs/devlog_astar_tiebreak_followup.html explica el
+# proceso de debugging completo.
+#
+# 1) La heurística base devuelve distancia en HEXES (1 unidad por paso) y se
+#    escala por grid.min_passable_terrain_cost(). Esto la deja tight en mapas
+#    con un único terreno (f del lens = f del goal) y la mantiene admisible
+#    en terreno mixto (escalamos por el mínimo). Sin esto el lens entero
+#    queda con f < f_goal y A* lo recorre completo (~55k pops en 250x250).
+#
+# 2) Cube-cross tiebreak. Con la heurística tight todas las celdas óptimas
+#    empatan en f y A* aún expande el lens (~14k celdas). Sumar el producto
+#    cruzado en coords cube — |Δq_cn·Δr_sg − Δq_sg·Δr_cn| — perturba la
+#    prioridad para preferir celdas alineadas con la diagonal start→goal y
+#    colapsa la búsqueda a una banda angosta (~370 pops para path de 370).
+#    ε debe quedar muy por debajo del costo mínimo de un paso para no
+#    romper admisibilidad en mapas chicos.
+const ASTAR_TIEBREAK_CROSS := 0.001
 ## Pathfinding unificado para mapas hexagonales.
 ## Dijkstra + A* con heap binario para O((V+E) log V).
 ##
@@ -68,53 +88,59 @@ class MinHeap:
 			idx = smallest
 
 
+## Configuración para _search(). Agrupa los Callables del algoritmo para evitar
+## firma posicional frágil. Construir con SearchConfig.new() y rellenar campos.
+class SearchConfig:
+	## (coord, neighbor) → bool — si incluir el vecino en la expansión.
+	var neighbor_filter: Callable
+	## (neighbor, from_coord, new_cost) → void — callback al relajar un nodo.
+	var on_better_path: Callable
+	## (coord) → bool — terminar temprano; útil para A* con destino fijo.
+	var should_exit: Callable
+	## (coord, g_cost) → float — g_cost para Dijkstra, g+h para A*.
+	var priority_fn: Callable
+	## Costo máximo; hexes más caros quedan fuera. INF = sin límite.
+	var max_cost: float = INF
+	## (from, to) → float — opcional; por defecto usa terrain_cost + edge_cost del grid.
+	var cost_fn: Callable = Callable()
+
+
 ## Núcleo Dijkstra/A* unificado. Retorna cost_so_far: Dictionary[Vector2i, float].
-## Todos los métodos públicos delegan aquí con distintos callables.
-##
-## [param neighbor_filter]: (coord, neighbor) → bool — si incluir el vecino.
-## [param on_better_path]: (neighbor, from_coord, new_cost) → void — callback al relajar un nodo.
-## [param should_exit]: (coord) → bool — terminar temprano (útil para A* con destino fijo).
-## [param priority_fn]: (coord, g_cost) → float — g_cost para Dijkstra, g+h para A*.
-## [param cost_fn]: (from, to) → float — opcional; por defecto usa terrain_cost + edge_cost del grid.
+## Todos los métodos públicos delegan aquí vía SearchConfig.
 static func _search(
 	start: Vector2i,
 	grid: HexGrid,
-	neighbor_filter: Callable,
-	on_better_path: Callable,
-	should_exit: Callable,
-	priority_fn: Callable,
-	max_cost: float = INF,
-	cost_fn: Callable = Callable(),
+	cfg: SearchConfig,
 ) -> Dictionary:
-	var _resolve_cost := cost_fn if cost_fn.is_valid() else func(from: Vector2i, to: Vector2i) -> float:
+	var _resolve_cost := cfg.cost_fn if cfg.cost_fn.is_valid() else func(from: Vector2i, to: Vector2i) -> float:
 		return grid.get_movement_cost(to) + grid.get_edge_cost(from, to)
 
 	var cost_so_far: Dictionary = {}
 	var queue := MinHeap.new()
 	cost_so_far[start] = 0.0
-	on_better_path.call(start, start, 0.0)
-	queue.push([priority_fn.call(start, 0.0), start])
+	cfg.on_better_path.call(start, start, 0.0)
+	queue.push([cfg.priority_fn.call(start, 0.0), start])
 
 	while not queue.is_empty():
 		var current: Array = queue.pop()
 		var coord: Vector2i = current[1]
 
-		if should_exit.call(coord):
+		if cfg.should_exit.call(coord):
 			break
 
-		if current[0] > priority_fn.call(coord, cost_so_far.get(coord, INF)):
+		if current[0] > cfg.priority_fn.call(coord, cost_so_far.get(coord, INF)):
 			continue
 
 		for neighbor: Vector2i in HexGrid.get_neighbors(coord):
-			if not neighbor_filter.call(coord, neighbor):
+			if not cfg.neighbor_filter.call(coord, neighbor):
 				continue
 			var new_cost: float = cost_so_far[coord] + _resolve_cost.call(coord, neighbor)
-			if new_cost > max_cost:
+			if new_cost > cfg.max_cost:
 				continue
 			if not cost_so_far.has(neighbor) or new_cost < cost_so_far[neighbor]:
 				cost_so_far[neighbor] = new_cost
-				on_better_path.call(neighbor, coord, new_cost)
-				queue.push([priority_fn.call(neighbor, new_cost), neighbor])
+				cfg.on_better_path.call(neighbor, coord, new_cost)
+				queue.push([cfg.priority_fn.call(neighbor, new_cost), neighbor])
 
 	return cost_so_far
 
@@ -125,14 +151,13 @@ static func _search(
 static func find_reachable(origin: Vector2i, max_cost: float, grid: HexGrid) -> Dictionary:
 	if grid == null or not grid.is_valid(origin) or max_cost < 0.0:
 		return {}
-	return _search(
-		origin, grid,
-		_default_neighbor_filter(grid),
-		func(_n: Vector2i, _c: Vector2i, _cost: float) -> void: pass,
-		func(_c: Vector2i) -> bool: return false,
-		func(_c: Vector2i, g: float) -> float: return g,
-		max_cost,
-	)
+	var cfg := SearchConfig.new()
+	cfg.neighbor_filter = _default_neighbor_filter(grid)
+	cfg.on_better_path = func(_n: Vector2i, _c: Vector2i, _cost: float) -> void: pass
+	cfg.should_exit = func(_c: Vector2i) -> bool: return false
+	cfg.priority_fn = func(_c: Vector2i, g: float) -> float: return g
+	cfg.max_cost = max_cost
+	return _search(origin, grid, cfg)
 
 
 ## Encuentra el camino más corto entre [param from] y [param to] usando Dijkstra.
@@ -140,45 +165,53 @@ static func find_reachable(origin: Vector2i, max_cost: float, grid: HexGrid) -> 
 ## Si [param reachable] está vacío, expande todo el grid pasable (sin límite de costo).
 ## Retorna Array[Vector2i] sin incluir [param from]. Retorna [] si no hay camino.
 static func find_path(from: Vector2i, to: Vector2i, grid: HexGrid, reachable: Dictionary = {}) -> Array[Vector2i]:
-	if not _validate_path_args(from, to, grid, reachable.is_empty()):
+	var valid := _validate_path_args_strict(from, to, grid) if reachable.is_empty() else \
+		_validate_path_args_basic(from, to, grid)
+	if not valid:
 		return []
-
-	var came_from: Dictionary = {}
-	var neighbor_filter: Callable
-	if reachable.is_empty():
-		neighbor_filter = _default_neighbor_filter(grid)
-	else:
-		neighbor_filter = func(_c: Vector2i, n: Vector2i) -> bool:
-			return reachable.has(n)
-
-	_search(
-		from, grid,
-		neighbor_filter,
-		func(n: Vector2i, c: Vector2i, _cost: float) -> void: came_from[n] = c,
-		func(c: Vector2i) -> bool: return c == to,
-		func(_c: Vector2i, g: float) -> float: return g,
-	)
-
-	return _reconstruct_path(came_from, from, to)
+	var neighbor_filter := _default_neighbor_filter(grid) if reachable.is_empty() else \
+		func(_c: Vector2i, n: Vector2i) -> bool: return reachable.has(n)
+	return _find_path_impl(from, to, grid, neighbor_filter,
+		func(_c: Vector2i, g: float) -> float: return g)
 
 
-## Camino óptimo con heurística cube distance (A*). Más rápido que find_path() sin reachable
-## en mapas grandes porque descarta zonas alejadas del destino.
-## Produce paths óptimos cuando el costo mínimo de terreno >= 1.0 (heurística admisible).
+## Camino óptimo con A* (heurística hex-distance escalada por el costo mínimo
+## de terreno del grid + cube-cross tiebreak). Ver el bloque de comentarios
+## sobre ASTAR_TIEBREAK_CROSS para detalles del diseño.
+## Más rápido que find_path() sin reachable en mapas grandes; en mapas
+## uniform-cost colapsa a ~O(longitud del path).
+## Requiere el cube-cross tiebreak definido en ASTAR_TIEBREAK_CROSS para
+## colapsar en mapas uniformes; sacarlo regresa por un orden de magnitud.
+## Heurística admisible siempre que terrain_cost no se modifique a posteriori
+## (el escalado se cachea en grid.min_passable_terrain_cost()).
 ## Retorna [] si no hay camino.
 static func find_path_astar(from: Vector2i, to: Vector2i, grid: HexGrid) -> Array[Vector2i]:
-	if not _validate_path_args(from, to, grid, true):
+	if not _validate_path_args_strict(from, to, grid):
 		return []
+	var h_scale := grid.min_passable_terrain_cost()
+	var cube_to := HexGrid.offset_to_cube(to)
+	var cube_from := HexGrid.offset_to_cube(from)
+	var dq_sg := cube_from.x - cube_to.x
+	var dr_sg := cube_from.z - cube_to.z
+	return _find_path_impl(from, to, grid, _default_neighbor_filter(grid),
+		func(c: Vector2i, g: float) -> float:
+			var h := float(HexGrid.distance(c, to)) * h_scale
+			var cn := HexGrid.offset_to_cube(c)
+			var dq_cg := cn.x - cube_to.x
+			var dr_cg := cn.z - cube_to.z
+			var cross: float = absf(float(dq_cg) * dr_sg - dq_sg * float(dr_cg))
+			return g + h + cross * ASTAR_TIEBREAK_CROSS)
 
+
+## Núcleo compartido de find_path y find_path_astar. Solo difieren en neighbor_filter y priority_fn.
+static func _find_path_impl(from: Vector2i, to: Vector2i, grid: HexGrid, neighbor_filter: Callable, priority_fn: Callable) -> Array[Vector2i]:
 	var came_from: Dictionary = {}
-	_search(
-		from, grid,
-		_default_neighbor_filter(grid),
-		func(n: Vector2i, c: Vector2i, _cost: float) -> void: came_from[n] = c,
-		func(c: Vector2i) -> bool: return c == to,
-		func(c: Vector2i, g: float) -> float: return g + float(HexGrid.distance(c, to)),
-	)
-
+	var cfg := SearchConfig.new()
+	cfg.neighbor_filter = neighbor_filter
+	cfg.on_better_path = func(n: Vector2i, c: Vector2i, _cost: float) -> void: came_from[n] = c
+	cfg.should_exit = func(c: Vector2i) -> bool: return c == to
+	cfg.priority_fn = priority_fn
+	_search(from, grid, cfg)
 	return _reconstruct_path(came_from, from, to)
 
 
@@ -188,16 +221,15 @@ static func _default_neighbor_filter(grid: HexGrid) -> Callable:
 		return grid.is_valid(n) and grid.is_passable(n)
 
 
-## Valida precondiciones comunes: grid no nulo, from válido, from != to.
-## Si check_to_passable = true, también verifica que to sea válido y pasable.
-static func _validate_path_args(from: Vector2i, to: Vector2i, grid: HexGrid, check_to_passable: bool) -> bool:
-	if grid == null or not grid.is_valid(from):
-		return false
-	if from == to:
-		return false
-	if check_to_passable and (not grid.is_valid(to) or not grid.is_passable(to)):
-		return false
-	return true
+## Valida args básicos: grid no nulo, from válido, from != to.
+static func _validate_path_args_basic(from: Vector2i, to: Vector2i, grid: HexGrid) -> bool:
+	return grid != null and grid.is_valid(from) and from != to
+
+
+## Valida args para búsqueda sin reachable: incluye verificación de pasabilidad de to.
+static func _validate_path_args_strict(from: Vector2i, to: Vector2i, grid: HexGrid) -> bool:
+	return _validate_path_args_basic(from, to, grid) \
+		and grid.is_valid(to) and grid.is_passable(to)
 
 
 ## Reconstruye el camino desde el diccionario came_from recorriendo hacia atrás desde to.

@@ -21,6 +21,7 @@ extends RefCounted
 signal fog_changed(player_id: int, coord: Vector2i, old_state: int, new_state: int)
 
 ## Grid hexagonal asociado. No cambia después de _init.
+## Todos los métodos públicos hacen guard "if grid == null: return" — invariante de clase.
 var grid: HexGrid = null
 var _visible_by_player: Dictionary = {}  # player_id (int) → Dictionary (Vector2i → true)
 var _visibility_radius_fn: Callable
@@ -126,9 +127,7 @@ func serialize() -> Dictionary:
 
 
 static func _parse_coord_pair(pair) -> Vector2i:
-	if pair is Array and pair.size() >= 2:
-		return Vector2i(int(pair[0]), int(pair[1]))
-	return Vector2i.ZERO
+	return HexCell.parse_coord_array(pair)
 
 
 ## Reconstruye un FogOfWar desde un Dictionary generado por serialize().
