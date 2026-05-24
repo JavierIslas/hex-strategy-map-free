@@ -1,7 +1,7 @@
 .gitattributes export-ignore
 .gitignore export-ignore
-docs/ export-ignore
-examples/ export-ignore
+addons/hex_strategy_map/docs/ export-ignore
+addons/hex_strategy_map/examples/ export-ignore
 
 # Archivos de root: la distribución oficial se arma con pack.sh.
 # El "Download ZIP" desde GitHub no debe entregar un paquete usable.
