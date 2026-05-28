@@ -110,19 +110,20 @@ for `HexRenderer`. See the [Customization Guide](customization.md) for details.
 ### Large maps (200x200+)
 
 For maps with 40K+ hexes, the node-per-hex approach creates too many scene tree
-nodes. Use batch mode instead:
+nodes. Use `HexBatchRenderer` instead:
 
 ```gdscript
 # Replaces the for loop above — no Area2D nodes, just _draw()
-renderer.render_batch(hex_container, grid)
+var batch := HexBatchRenderer.new(HexPalette.new(), HexGrid.HEX_SIZE)
+batch.render(hex_container, grid)
 
 # In _process, track camera to trigger viewport redraws:
-renderer.batch_track_viewport(hex_container)
+batch.track_viewport(hex_container)
 ```
 
-Batch mode renders terrain + fog + highlights with viewport AABB culling. It does
-not support icons, textures, or custom tile visuals. Click detection still works
-via `HexGrid.pixel_to_offset()`.
+`HexBatchRenderer` renders terrain + fog + highlights with viewport AABB culling.
+It does not support icons, textures, or custom tile visuals. Click detection still
+works via `HexGrid.pixel_to_offset()`.
 
 ---
 

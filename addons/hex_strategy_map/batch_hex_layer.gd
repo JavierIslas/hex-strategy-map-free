@@ -3,8 +3,8 @@ extends Node2D
 ## Capa de renderizado batch para hexágonos. Usa _draw() directo en vez de nodos.
 ## Soporta viewport culling: solo dibuja hexes dentro del área visible de la cámara.
 ##
-## HexRenderer crea tres instancias: BatchTerrain, BatchFog, BatchHighlight.
-## No instanciar directamente — usar HexRenderer.render_batch().
+## HexBatchRenderer crea tres instancias: BatchTerrain, BatchFog, BatchHighlight.
+## No instanciar directamente — usar HexBatchRenderer.render().
 ##
 ## draw_fn recibe (layer, grid, hex_size, min_coord, max_coord) y llama a los
 ## métodos draw_* de CanvasItem (draw_colored_polygon, draw_polyline, etc.)

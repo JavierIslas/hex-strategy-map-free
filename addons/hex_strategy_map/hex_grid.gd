@@ -34,7 +34,7 @@ const EDGE_COST: Dictionary = {
 	EdgeType.ROAD: -0.5,
 }
 
-## Tamaño del hex en pixels (flat-top, radio).
+## Tamaño del hex en pixels (radio del circunscripto, pointy-top odd-r).
 const HEX_SIZE: float = 32.0
 ## sqrt(3) precalculado para la fórmula de conversión offset↔pixel (pointy-top hexes).
 const HEX_SQRT3: float = 1.7320508075688772
@@ -222,20 +222,25 @@ func serialize() -> Dictionary:
 
 ## NOTA: JSON serializa int keys como strings. Se reconvierten a int aquí.
 static func deserialize(data: Dictionary) -> HexGrid:
-	var terrain_cost: Dictionary = {}
+	var parsed_terrain_cost: Dictionary = {}
 	for key in data.get("terrain_cost", {}):
-		terrain_cost[int(key)] = data["terrain_cost"][key]
-	var edge_cost: Dictionary = {}
+		parsed_terrain_cost[int(key)] = data["terrain_cost"][key]
+	var parsed_edge_cost: Dictionary = {}
 	for key in data.get("edge_cost", {}):
-		edge_cost[int(key)] = data["edge_cost"][key]
-	var grid := HexGrid.new(data.get("width", 15), data.get("height", 15), terrain_cost, data.get("hex_size", HEX_SIZE), edge_cost)
+		parsed_edge_cost[int(key)] = data["edge_cost"][key]
+	var grid := HexGrid.new(data.get("width", 15), data.get("height", 15), parsed_terrain_cost, data.get("hex_size", HEX_SIZE), parsed_edge_cost)
 	grid.cells.clear()
 	var cells_data: Array = data.get("cells", [])
 	for cell_data in cells_data:
 		var cell := HexCell.deserialize(cell_data)
 		grid.cells[cell.coord] = cell
 	var edges_data: Dictionary = data.get("edges", {})
-	grid.edges = edges_data
+	for key in edges_data:
+		var entry = edges_data[key]
+		if not entry is Dictionary or not entry.has("type") or not entry.has("cost"):
+			push_warning("HexGrid.deserialize: edge inválido '%s' descartado (falta type/cost)" % key)
+			continue
+		grid.edges[key] = entry
 	return grid
 
 

@@ -496,9 +496,9 @@ per-hex fog (which renders one shader instance per cell), this approach scales t
 grids of tens of thousands of hexes and produces a **continuous bilinear-smoothed
 fog** that flows between cells, matching the look of Civilization/StarCraft.
 
-Compatible with any terrain renderer (`HexRenderer.render()`, `HexRenderer.render_batch()`,
+Compatible with any terrain renderer (`HexRenderer.render()`, `HexBatchRenderer.render()`,
 or a custom one). Reads the same `FogOfWar` + `HexCell` model — it is a render alternative,
-not a model replacement. Recommended for use alongside `render_batch()` since the
+not a model replacement. Recommended for use alongside `HexBatchRenderer.render()` since the
 batch path's built-in fog is flat color only.
 
 ### Constants
@@ -646,23 +646,21 @@ All parameters are optional — `terrain_colors` and `color_fn` are the most com
 Only one of `tile_visual_fn`, `texture_fn`, `animation_fn` is used per cell;
 `tile_visual_fn` takes priority, then `animation_fn`, then `texture_fn`.
 
-> **Batch mode caveat**: when using `render_batch()` instead of `create_hex_visual()`,
-> the callables `cell_icon_fn`, `tile_visual_fn`, `texture_fn`, `animation_fn`, and
-> `overlay_fn` are **silently ignored** — batch mode draws terrain color + fog +
-> highlight only. For continuous global fog on a batch grid, use `FogTextureRenderer`.
+> **Batch mode caveat**: `HexBatchRenderer` is a separate class with its own
+> narrower API. It draws terrain color + fog + highlight only — no icons,
+> textures, animations, custom tile visuals, or overlays. For continuous
+> global fog on a batch grid, pair it with `FogTextureRenderer`.
 
 ### Constants
 
 | Name | Type | Description |
 |------|------|-------------|
-| `DEFAULT_TERRAIN_COLORS` | `Dictionary` | Default `{Terrain: Color}` table |
-| `DEFAULT_FOG_COLORS` | `Dictionary` | Default fog overlay colors per FogState |
-| `REACHABLE_COLOR` | `Color` | Default highlight color for reachable hexes |
-| `BORDER_COLOR` | `Color` | Default hex border color |
-| `BORDER_WIDTH` | `float` | Default hex border width |
-| `ICON_OFFSET` | `Vector2` | Icon label offset from hex center (`-6, -6`) |
-| `ICON_FONT_SIZE` | `int` | Icon label font size (`12`) |
-| `SKIP_COLOR` | `Color` | Sentinel (`Color(-1,-1,-1,-1)`) returned by `color_fn` to fall back to `terrain_colors` |
+| `DEFAULT_ICON_OFFSET` | `Vector2` | Default icon label offset from hex center (`-6, -6`). Override via `icon_offset` callable key in `_init`. |
+| `DEFAULT_ICON_FONT_SIZE` | `int` | Default icon label font size (`12`). Override via `icon_font_size` callable key in `_init`. |
+
+Color defaults (`DEFAULT_TERRAIN_COLORS`, `DEFAULT_FOG_COLORS`, `REACHABLE_COLOR`,
+`BORDER_COLOR`, `BORDER_WIDTH`, `SKIP_COLOR`) live on `HexPalette` — see the
+`HexPalette` section.
 
 ### Signals
 
@@ -673,7 +671,7 @@ Only one of `tile_visual_fn`, `texture_fn`, `animation_fn` is used per cell;
 
 Both signals fire via `Area2D.input_event` for any mouse button and touch events.
 Filter `event.button_index == MOUSE_BUTTON_LEFT` in your handler if needed.
-Not emitted in batch mode.
+Not emitted by `HexBatchRenderer`.
 
 ### Hex node structure
 
@@ -807,53 +805,54 @@ var blocked := grid.get_blocked_cells(origin, 5, blocking_terrains)
 renderer.update_los_highlight(hex_container, visible, blocked)
 ```
 
-### Batch rendering (for large maps)
+### Batch rendering (for large maps) — `HexBatchRenderer`
 
-The batch mode uses `_draw()` directly instead of creating one `Area2D` per hex.
-This avoids scene tree overhead and enables viewport AABB culling — suitable for
-maps of 200×200+ hexes (40K+ cells).
+`HexBatchRenderer` is a separate class for batch rendering. It uses `_draw()`
+directly instead of creating one `Area2D` per hex, avoiding scene tree overhead
+and enabling viewport AABB culling — suitable for maps of 200×200+ hexes (40K+
+cells).
 
-**Limitations:** batch mode renders terrain color + fog + highlights only.
-The callable parameters `cell_icon_fn`, `tile_visual_fn`, `texture_fn`, `animation_fn`,
-and `overlay_fn` are **silently ignored** when `render_batch()` is used — they only
-apply to the node-per-hex path (`create_hex_visual`). Likewise `fog_material` (per-hex
-shader) is ignored in batch mode; for soft continuous fog over a batch grid use
-`FogTextureRenderer` (see below). Click detection uses `HexGrid.pixel_to_offset()`
+**Limitations:** renders terrain color + fog + highlights only. No icons,
+textures, animations, custom tile visuals, or overlays — those are exclusive to
+node-per-hex `HexRenderer`. Click detection uses `HexGrid.pixel_to_offset()`
 math — no `Area2D` nodes needed.
 
-**Recommended pattern for large maps**: combine `render_batch()` for terrain with a
-separate `Node2D` layer of game entities (units, buildings) positioned via
-`HexGrid.offset_to_pixel`, plus `FogTextureRenderer` for the fog overlay. Entities
-decide their own visibility by reading `HexCell.get_fog_state(player_id)`.
+**Recommended pattern for large maps**: combine `HexBatchRenderer.render()` for
+terrain with a separate `Node2D` layer of game entities (units, buildings)
+positioned via `HexGrid.offset_to_pixel`, plus `FogTextureRenderer` for the fog
+overlay. Entities decide their own visibility by reading
+`HexCell.get_fog_state(player_id)`.
 
 ```gdscript
-# Instead of create_hex_visual in a loop:
-renderer.render_batch(hex_container, grid)
-renderer.update_batch_fog(hex_container, grid, 0)
+var batch := HexBatchRenderer.new(HexPalette.new(), HexGrid.HEX_SIZE)
+batch.render(hex_container, grid)
+batch.update_fog(hex_container, grid, 0)
 
 # In _process, track camera movement to trigger viewport redraws:
-renderer.batch_track_viewport(hex_container)
+batch.track_viewport(hex_container)
 ```
 
-#### `render_batch(container: Node2D, grid: HexGrid) → void`
-Clears `container` and creates three `BatchHexLayer` children: terrain, fog, and highlight.
-Call once during initialization instead of the `create_hex_visual` loop.
+#### `_init(palette: HexPalette, hex_size: float = HexGrid.HEX_SIZE) → void`
+Constructs a batch renderer with the given palette and hex size.
 
-#### `update_batch_fog(container: Node2D, grid: HexGrid, player_id: int = 0) → void`
+#### `render(container: Node2D, grid: HexGrid) → void`
+Clears `container` and creates three `BatchHexLayer` children: terrain, fog, and highlight.
+Call once during initialization.
+
+#### `update_fog(container: Node2D, grid: HexGrid, player_id: int = 0) → void`
 Marks the fog layer as dirty. Redraws on the next frame with fog state for `player_id`.
 
-#### `update_batch_reachable_highlight(container: Node2D, grid: HexGrid, reachable: Dictionary, highlighted_hexes: Dictionary) → void`
-Marks the highlight layer as dirty with reachable hex data. Same semantics as
-`update_reachable_highlight` but for batch rendering.
+#### `update_reachable_highlight(container: Node2D, grid: HexGrid, reachable: Dictionary, highlighted_hexes: Dictionary) → void`
+Marks the highlight layer as dirty with reachable hex data.
 
-#### `update_batch_los_highlight(container: Node2D, visible_coords: Array[Vector2i], blocked_coords: Array[Vector2i] = []) → void`
+#### `update_los_highlight(container: Node2D, visible_coords: Array[Vector2i], blocked_coords: Array[Vector2i] = []) → void`
 Marks the highlight layer as dirty with LOS data. Replaces reachable highlight.
 
-#### `update_batch_cell(container: Node2D, grid: HexGrid, coord: Vector2i) → void`
+#### `update_cell(container: Node2D, grid: HexGrid, coord: Vector2i) → void`
 Marks the terrain layer as dirty after a cell changes. Redraws all visible terrain
 (the layer does not track individual cells).
 
-#### `batch_track_viewport(container: Node2D) → void`
+#### `track_viewport(container: Node2D) → void`
 Checks camera movement on all three batch layers. If the camera moved more than
 1.5 hex sizes since the last draw, triggers a redraw. Call each frame in `_process`.
 
@@ -965,7 +964,7 @@ A single rendering layer for batch mode. Uses `_draw()` to render hexes directly
 without creating individual `Area2D` nodes. Performs viewport AABB culling to
 draw only visible hexes.
 
-Created automatically by `HexRenderer.render_batch()` — you rarely instantiate
+Created automatically by `HexBatchRenderer.render()` — you rarely instantiate
 this class directly.
 
 ### Constructor
@@ -990,7 +989,7 @@ frame only when dirty.
 #### `check_viewport() → void`
 Compares the current camera position with the last drawn position. If the camera
 moved more than 1.5 hex sizes, calls `mark_dirty()`. Call each frame in `_process`
-(via `HexRenderer.batch_track_viewport()`).
+(via `HexBatchRenderer.track_viewport()`).
 
 ### How viewport culling works
 

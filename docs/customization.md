@@ -68,15 +68,18 @@ var colors := {
     TUNDRA:   Color(0.60, 0.68, 0.58),
 }
 
-var renderer := HexRenderer.new(colors)
+var palette := HexPalette.new()
+palette.terrain_colors = colors
+var renderer := HexRenderer.new(palette, HexGrid.HEX_SIZE)
 ```
 
-You can also use `HexRenderer.DEFAULT_TERRAIN_COLORS` as a starting point:
+You can also use `HexPalette.DEFAULT_TERRAIN_COLORS` as a starting point:
 
 ```gdscript
-var colors := HexRenderer.DEFAULT_TERRAIN_COLORS.duplicate()
-colors[DESERT] = Color(0.85, 0.75, 0.40)
-var renderer := HexRenderer.new(colors)
+var palette := HexPalette.new()
+palette.terrain_colors = HexPalette.DEFAULT_TERRAIN_COLORS.duplicate()
+palette.terrain_colors[DESERT] = Color(0.85, 0.75, 0.40)
+var renderer := HexRenderer.new(palette, HexGrid.HEX_SIZE)
 ```
 
 ---
@@ -376,13 +379,9 @@ independent of terrain.
 var color_fn := func(cell: HexCell) -> Color:
     return GEM_COLORS.get(cell.tag, Color.DARK_GRAY)
 
-var renderer := HexRenderer.new(
-    HexRenderer.DEFAULT_TERRAIN_COLORS,
-    Callable(), {}, HexGrid.HEX_SIZE,
-    Callable(), Callable(), Callable(), Callable(),
-    HexRenderer.REACHABLE_COLOR, HexRenderer.BORDER_COLOR, HexRenderer.BORDER_WIDTH,
-    color_fn,
-)
+var palette := HexPalette.new()
+palette.color_fn = color_fn
+var renderer := HexRenderer.new(palette, HexGrid.HEX_SIZE)
 ```
 
 Color is applied during `create_hex_visual()`. To repaint a single cell at runtime
@@ -393,12 +392,12 @@ cell.tag = new_gem_type
 renderer.refresh_cell_color(hex_container, coord, cell)
 ```
 
-Return `HexRenderer.SKIP_COLOR` to fall back to `terrain_colors` for specific cells:
+Return `HexPalette.SKIP_COLOR` to fall back to `terrain_colors` for specific cells:
 
 ```gdscript
 var color_fn := func(cell: HexCell) -> Color:
     if cell.metadata.get("use_terrain", false):
-        return HexRenderer.SKIP_COLOR   # defer to terrain_colors
+        return HexPalette.SKIP_COLOR   # defer to terrain_colors
     return OWNER_COLORS.get(cell.metadata.get("owner_id", -1), Color.GRAY)
 ```
 
@@ -701,39 +700,42 @@ the scene tree overhead causes performance issues.
 
 ### Switching to batch mode
 
-Replace the `create_hex_visual` loop with a single call:
+`HexBatchRenderer` is a separate class — don't reuse the `HexRenderer` instance.
+Both share `HexPalette`, so swap one for the other:
 
 ```gdscript
 # Instead of:
+# var renderer := HexRenderer.new(palette, HexGrid.HEX_SIZE)
 # for coord in grid.cells:
 #     renderer.create_hex_visual(hex_container, coord, ...)
 
 # Use:
-renderer.render_batch(hex_container, grid)
-renderer.update_batch_fog(hex_container, grid, player_id)
+var batch := HexBatchRenderer.new(palette, HexGrid.HEX_SIZE)
+batch.render(hex_container, grid)
+batch.update_fog(hex_container, grid, player_id)
 ```
 
-Then call `batch_track_viewport` each frame to trigger redraws when the camera moves:
+Then call `track_viewport` each frame to trigger redraws when the camera moves:
 
 ```gdscript
 func _process(delta: float) -> void:
     cam_ctrl.process(delta, target_position)
-    renderer.batch_track_viewport(hex_container)
+    batch.track_viewport(hex_container)
 ```
 
 ### Batch mode API mapping
 
-| Node-per-hex | Batch mode |
-|---------------|------------|
-| `create_hex_visual()` loop | `render_batch()` |
-| `update_fog()` | `update_batch_fog()` |
-| `update_reachable_highlight()` | `update_batch_reachable_highlight()` |
-| `update_los_highlight()` | `update_batch_los_highlight()` |
-| `update_cell_visual()` | `update_batch_cell()` |
-| `refresh_cell_color()` | `update_batch_cell()` (full layer redraw) |
+| `HexRenderer` (node-per-hex) | `HexBatchRenderer` (batch) |
+|-------------------------------|----------------------------|
+| `create_hex_visual()` loop | `render()` |
+| `update_fog()` | `update_fog()` |
+| `update_reachable_highlight()` | `update_reachable_highlight()` |
+| `update_los_highlight()` | `update_los_highlight()` |
+| `update_cell_visual()` | `update_cell()` |
+| `refresh_cell_color()` | `update_cell()` (full layer redraw) |
 | `get_visual_for()` / `get_visual_part()` | — (no individual nodes in batch) |
 | `cell_pressed` / `cell_released` signals | — (use `HexGrid.pixel_to_offset()`) |
-| — | `batch_track_viewport()` (required in `_process`) |
+| — | `track_viewport()` (required in `_process`) |
 
 ### What batch mode does NOT render
 

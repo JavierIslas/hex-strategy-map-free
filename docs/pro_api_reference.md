@@ -48,6 +48,113 @@ class FieldCell:
 
 ---
 
+## GroupMover
+
+```
+class_name GroupMover
+extends RefCounted
+```
+
+Dispatches a group of `MapToken`s to a shared goal using a single `FlowField`.
+Each unit receives its own path computed from the shared field — far cheaper
+than N independent A\* calls when many units head to the same destination.
+
+`GroupMover` is animation-agnostic: it sets each token's state (via
+`MapToken.start_path`) and returns the assigned paths. The consumer decides
+how to animate (sequential, e.g. turn-based; or concurrent Tweens, e.g. RTS).
+
+### Methods
+
+#### `static dispatch(units: Array[MapToken], goal: Vector2i, grid: HexGrid) → Dictionary`
+Builds a `FlowField` from `goal` and assigns a path to each unit via
+`token.start_path()`. Returns `Dictionary[MapToken, Array[Vector2i]]` mapping
+each token that received a path to its trace.
+
+Units are silently skipped when:
+- `token` is `null` or already moving (`is_currently_moving()` is true)
+- `token.hex_coord == goal` (already at destination)
+- The goal is unreachable from the token's position
+- The goal is invalid or impassable (returns `{}`)
+
+```gdscript
+var paths := GroupMover.dispatch(selected_units, target_coord, grid)
+# Sequential (turn-based): drive a single Tween across paths.
+# Concurrent (RTS): create a Tween per token.
+for token in paths:
+    var tween := create_tween()
+    var marker := unit_markers[token.get_instance_id()]
+    for step in paths[token]:
+        var pixel := HexGrid.offset_to_pixel(step)
+        tween.tween_property(marker, "global_position", pixel, 0.15)
+        tween.tween_callback(token.confirm_step.bind(step))
+    tween.tween_callback(token.finish_movement)
+```
+
+---
+
+## UnitSelector
+
+```
+class_name UnitSelector
+extends Node2D
+```
+
+Rubber-band selection in world-space. Draws a rectangle while the user drags
+the left mouse button and emits the set of units inside it on release. The
+command/movement step is deliberately left out — combine with `GroupMover` (or
+any custom logic) on the `selection_changed` signal.
+
+Add as a child of your scene; the rect is drawn in world coordinates so it
+scales with the camera zoom.
+
+### Signals
+
+| Signal | Payload | Emitted when |
+|--------|---------|-------------|
+| `selection_changed` | `(units: Array[MapToken])` | A drag completes (above `min_drag_distance`) or `select_in_rect()` is called |
+
+### Exported properties
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `min_drag_distance` | `float` | `4.0` | Minimum drag distance in pixels to trigger selection (filters accidental clicks) |
+| `rect_color` | `Color` | `Color(0.4, 0.8, 1.0, 0.2)` | Fill color of the selection rectangle |
+| `rect_border_color` | `Color` | `Color(0.4, 0.8, 1.0, 0.9)` | Border color of the selection rectangle |
+
+### Methods
+
+#### `setup(hex_grid: HexGrid, tokens_provider: Callable, selectable_fn: Callable = Callable()) → void`
+Wires the selector to a grid and a source of selectable units.
+
+`tokens_provider` has signature `() → Array[MapToken]` — called on each drag
+release to pull the current candidate set (typically the active player's units).
+
+`selectable_fn` has signature `(token: MapToken) → bool` — optional secondary
+filter (e.g. `t.movement_points > 0`). Omit to accept all candidates.
+
+```gdscript
+selector.setup(
+    grid,
+    func(): return registry.get_units(turn_manager.current_player_id),
+    func(t): return t.movement_points > 0.0
+)
+selector.selection_changed.connect(func(units):
+    print("%d units selected" % units.size()))
+```
+
+#### `select_in_rect(rect_world: Rect2) → void`
+Applies the selection to all units whose `hex_coord` (converted via
+`HexGrid.offset_to_pixel`) falls inside `rect_world`. Emits `selection_changed`.
+Useful when driving selection from a custom input system (e.g. a touch UI).
+
+#### `get_selection() → Array[MapToken]`
+Returns the current selection without re-running the AABB test.
+
+#### `clear_selection() → void`
+Empties the selection. Does **not** emit `selection_changed`.
+
+---
+
 ## SaveManager
 
 ```
@@ -118,7 +225,7 @@ your scene with `add_child(token)`.
 | Signal | Payload | Emitted when |
 |--------|---------|-------------|
 | `moved_to` | `(coord: Vector2i)` | `confirm_step()` is called — token logically moved to `coord` |
-| `movement_started` | — | `move_to()` successfully computes a path |
+| `movement_started` | — | `move_to()` or `start_path()` successfully accepts a path |
 | `movement_exhausted` | — | `finish_movement()` is called with ≤ 0.01 movement points remaining |
 
 ### Constants
@@ -164,6 +271,20 @@ Returns the path (excluding origin, including destination), or an empty array if
 - No valid path exists
 
 Emits `movement_started` on success.
+
+#### `start_path(path: Array[Vector2i]) → bool`
+Accepts a pre-computed path (e.g. from `FlowField` or `GroupMover`) without
+re-running A\*. Same semantics as `move_to()` but the caller supplies the path.
+
+Returns `true` if the path was accepted. Returns `false` if the token is already
+moving, the path is empty, or `setup()` has not been called.
+
+Emits `movement_started` on success.
+
+```gdscript
+var path: Array[Vector2i] = FlowField.trace_path(field, token.hex_coord)
+token.start_path(path)
+```
 
 #### `confirm_step(coord: Vector2i) → void`
 Advances the token's logical position to `coord` and deducts the movement cost.
@@ -493,7 +614,7 @@ Initializes the minimap. Must be called before the first frame.
 | `dot_radius` | `float` | `2.0` | Radius for terrain dots |
 | `token_radius` | `float` | `3.0` | Radius for token markers |
 | `color_hidden` | `Color` | `Color(0.05, 0.05, 0.08)` | Color for hidden cells |
-| `terrain_colors` | `Dictionary` | `HexRenderer.DEFAULT_TERRAIN_COLORS` | Terrain → color mapping |
+| `terrain_colors` | `Dictionary` | `HexPalette.DEFAULT_TERRAIN_COLORS` | Terrain → color mapping |
 
 ```gdscript
 var minimap := HexMiniMap.new()
@@ -602,7 +723,7 @@ class_name HexMapNode
 extends Node2D
 ```
 
-A serializable map node. Stores terrain data in its exported properties (saved with
+A serializable map node. Stores cell data in its exported properties (saved with
 the scene), renders a preview in the editor viewport, and converts to a `HexGrid`
 at runtime.
 
@@ -613,12 +734,12 @@ at runtime.
 | `width` | `int` | `15` | Number of columns |
 | `height` | `int` | `15` | Number of rows |
 | `hex_size` | `float` | `32.0` | Hex radius in pixels |
-| `terrain_data` | `Dictionary` | `{}` | Internal terrain store; `"x,y" → int` |
-| `cell_data` | `Dictionary` | `{}` | Per-cell data: `"x,y" → {elevation, tag, metadata, location}` |
+| `cell_data` | `Dictionary` | `{}` | Per-cell data: `"x,y" → {terrain, elevation, tag, metadata, location_type, location_data}` |
+| `terrain_visuals` | `TerrainVisualSet` | `null` | Optional textures for editor preview |
 
 All dimension properties trigger an immediate visual refresh via `queue_redraw()`.
-`cell_data` stores elevation, tag, and metadata per cell alongside terrain, enabling
-elevation-aware rendering with tinted colors.
+`cell_data` is the single source of truth — terrain, elevation, tag, and metadata
+all live there per cell, enabling elevation-aware rendering with tinted colors.
 
 #### Signals
 
@@ -630,7 +751,7 @@ elevation-aware rendering with tinted colors.
 #### Methods
 
 ##### `get_grid() → HexGrid`
-Creates and returns a `HexGrid` populated with the current `terrain_data`.
+Creates and returns a `HexGrid` populated with the current `cell_data`.
 The grid uses `{} ` as the cost table (defaults) and `hex_size`.
 Call this in `_ready()` to obtain the runtime grid.
 
@@ -752,6 +873,7 @@ Draws the hover preview (a semi-transparent colored polygon) using Godot's
 | `TerrainPalette` | `elevation_step_changed` | `(step: float)` |
 | `TerrainPalette` | `target_elevation_changed` | `(target: float)` |
 | `HexMapEditor` | `repaint_needed` | — |
+| `UnitSelector` | `selection_changed` | `(units: Array[MapToken])` |
 
 ## Callables — complete reference
 
@@ -766,3 +888,5 @@ Draws the hover preview (a semi-transparent colored polygon) using Godot's
 | `undo_redo_fn` | `HexMapEditor` | `() → EditorUndoRedoManager` | Paint without undo history |
 | `terrain_fn` | `TiledImporter.from_file/from_json` | `(gid: int) → int` | Required — no default |
 | `token_fn` | `HexMiniMap.set_token_fn` | `(coord: Vector2i) → Color` | No token markers |
+| `tokens_provider` | `UnitSelector.setup` | `() → Array[MapToken]` | Required — no default |
+| `selectable_fn` | `UnitSelector.setup` | `(token: MapToken) → bool` | All candidates accepted |
