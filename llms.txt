@@ -94,7 +94,7 @@ This addon is intentionally narrow. It is **not** the right choice for:
 ## Migration
 
 Upgrading from 1.x? See
-[MIGRATION.md](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/MIGRATION.md)
+[MIGRATION.md](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/MIGRATION.md)
 — 2.0 ships breaking changes to `HexRenderer._init` (palette + callables dict),
 removes the batch facade from `HexRenderer` (use `HexBatchRenderer` directly),
 removes `HexMapNode.terrain_data` (use `cell_data`), and drops the
