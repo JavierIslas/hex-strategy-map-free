@@ -29,7 +29,9 @@ ship as 2D scenes; replace those modules if you target 3D.
 - **HexCell** — Cell model with terrain, tag, metadata, per-player fog state, locations
 - **PathFinder** — Dijkstra and A* pathfinding, reachable hex calculation (O((V+E) log V))
 - **FogOfWar** — 3-state per-player fog (Hidden/Explored/Visible), LOS-based reveal
-- **HexRenderer** — Visual rendering with injectable terrain colors, fog overlays, highlights, edges. Batch mode for large maps
+- **HexRenderer** — Node-per-hex rendering with `HexPalette` for colors, fog overlays, highlights, edges
+- **HexBatchRenderer** — Standalone batch renderer for large maps (terrain + fog + highlights with viewport culling)
+- **HexPalette** — Shared `Resource` with terrain/fog colors and injectable `color_fn`
 - **MapCamera** — Follow target, drag, zoom, edge-scroll
 
 ## Installation
@@ -44,8 +46,9 @@ ship as 2D scenes; replace those modules if you target 3D.
 var grid := HexGrid.new(12, 12)
 grid.generate_cells()
 
-# Render hexes
-var renderer := HexRenderer.new(HexRenderer.DEFAULT_TERRAIN_COLORS, func(_cell): return "")
+# Render hexes (node-per-hex)
+var palette := HexPalette.new()
+var renderer := HexRenderer.new(palette, HexGrid.HEX_SIZE)
 for coord in grid.cells:
     renderer.create_hex_visual(hex_container, coord, HexGrid.offset_to_pixel(coord), grid.cells[coord])
 renderer.render_edges(edge_container, grid)
@@ -61,7 +64,8 @@ fog.reveal_around(0, Vector2i(2, 2), 3)
 renderer.update_fog(hex_container, grid, 0)
 
 # Batch mode for large maps (200x200+)
-renderer.render_batch(hex_container, grid)
+var batch := HexBatchRenderer.new(HexPalette.new(), HexGrid.HEX_SIZE)
+batch.render(hex_container, grid)
 
 # Camera
 var camera_ctrl := MapCamera.new(camera_node)
@@ -75,10 +79,9 @@ Everything is injectable via constructor parameters and callables:
 
 - **Terrain costs**: `HexGrid.new(15, 15, custom_cost_table)`
 - **Edge costs**: `HexGrid.new(15, 15, {}, 0.0, edge_cost_table)`
-- **Terrain colors**: `HexRenderer.new(my_colors, my_icon_callback)`
-- **Textures**: `HexRenderer.new(colors, icon_fn, fog_colors, texture_fn)`
-- **Animations**: `HexRenderer.new(colors, icon_fn, fog_colors, null, animation_fn)`
-- **Batch rendering**: `renderer.render_batch(container, grid)` for large maps with viewport culling
+- **Palette**: assign `palette.terrain_colors`, `palette.fog_colors`, `palette.color_fn` and pass to the renderer
+- **Renderer callables**: `HexRenderer.new(palette, hex_size, {"cell_icon_fn": fn, "texture_fn": fn, "animation_fn": fn, "tile_visual_fn": fn, "overlay_fn": fn, "fog_material": mat})`
+- **Batch rendering**: `HexBatchRenderer.new(palette, hex_size)` for large maps with viewport culling
 
 ## Classes
 
@@ -88,8 +91,10 @@ Everything is injectable via constructor parameters and callables:
 | `HexCell` | `RefCounted` | Cell with terrain, tag, metadata, fog state, locations |
 | `PathFinder` | `RefCounted` | Dijkstra + A* pathfinding, reachable hex calculation |
 | `FogOfWar` | `RefCounted` | 3-state per-player fog with LOS reveal |
-| `HexRenderer` | `RefCounted` | Visual rendering, fog overlays, highlights, edges, batch mode |
-| `BatchHexLayer` | `Node2D` | Batch rendering layer with viewport AABB culling |
+| `HexRenderer` | `RefCounted` | Node-per-hex rendering, fog overlays, highlights, edges |
+| `HexBatchRenderer` | `RefCounted` | Batch rendering for large maps |
+| `HexPalette` | `Resource` | Shared color palette with `terrain_colors`, `fog_colors`, `color_fn` |
+| `BatchHexLayer` | `Node2D` | Internal batch layer with viewport AABB culling |
 | `MapCamera` | `RefCounted` | Camera follow, drag, zoom, edge-scroll |
 
 ## Examples
@@ -106,9 +111,9 @@ Microbenchmarks for the free-tier modules live in `benchmarks/`. Run with `godot
 
 ## Testing
 
-269 automated tests (gdUnit4):
+~360 automated tests (gdUnit4), free-tier slice:
 
-HexGrid(92) · HexCell(24) · PathFinder(36) · HexRenderer(39) · BatchHexLayer(20) · MapCamera(14) · FogOfWar(44)
+HexGrid(98) · HexCell(29) · PathFinder(36) · HexRenderer(77) · HexBatchRenderer(22) · HexPalette(17) · BatchHexLayer(12) · MapCamera(14) · FogOfWar(49)
 
 ## Go Pro
 

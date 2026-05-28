@@ -33,8 +33,10 @@ No subclassing, no magic strings.
 - [HexGrid](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/hex_grid.gd): offset/cube coordinates, neighbors, distances, terrain & edge costs, elevation-aware line-of-sight via injectable callable
 - [HexCell](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/hex_cell.gd): cell model with terrain, tag, metadata dictionary, per-player fog state, elevation
 - [PathFinder](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/path_finder.gd): Dijkstra (`find_reachable`) and A* (`find_path_astar`), with injectable neighbor filters
-- [HexRenderer](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/hex_renderer.gd): per-hex Polygon2D / Sprite2D / AnimatedSprite2D rendering with textures, atlases, overlays, icons, edges
-- [BatchHexLayer](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/batch_hex_layer.gd): 200×200+ maps via single `_draw()` with viewport AABB culling and dirty tracking
+- [HexRenderer](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/hex_renderer.gd): node-per-hex Polygon2D / Sprite2D / AnimatedSprite2D rendering with textures, atlases, overlays, icons, edges. Constructed with `HexRenderer.new(palette, hex_size, callables)` where `callables` is a dictionary of injectable functions (`cell_icon_fn`, `texture_fn`, `animation_fn`, `tile_visual_fn`, `overlay_fn`, `fog_material`)
+- [HexBatchRenderer](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/hex_batch_renderer.gd): standalone batch renderer for 200×200+ maps (terrain + fog + highlights via a single `_draw()` with viewport AABB culling and dirty tracking). Pair with a separate `Node2D` layer for entities
+- [HexPalette](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/hex_palette.gd): shared `Resource` with `terrain_colors`, `fog_colors`, `border_color`, `reachable_color`, injectable `color_fn`, and `resolve_cell_color(cell)`. Used by both renderers
+- [BatchHexLayer](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/batch_hex_layer.gd): internal batch layer used by `HexBatchRenderer`
 - [FogOfWar](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/fog_of_war.gd): 3-state per-player fog (Hidden / Explored / Visible) with LOS-based reveal
 - [MapCamera](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/map_camera.gd): follow target, drag, zoom, edge-scroll
 
@@ -87,4 +89,13 @@ This addon is intentionally narrow. It is **not** the right choice for:
 
 - Godot 4.6+
 - No external dependencies (pure GDScript)
-- 269 automated tests (free) / 598 automated tests (full) via gdUnit4
+- 639 automated tests across 25 suites via gdUnit4
+
+## Migration
+
+Upgrading from 1.x? See
+[MIGRATION.md](https://github.com/JavierIslas/hex-strategy-map-free/blob/main/addons/hex_strategy_map/MIGRATION.md)
+— 2.0 ships breaking changes to `HexRenderer._init` (palette + callables dict),
+removes the batch facade from `HexRenderer` (use `HexBatchRenderer` directly),
+removes `HexMapNode.terrain_data` (use `cell_data`), and drops the
+`SaveManager.SAVE_DIR` alias and `HexRenderer.DEFAULT_*` re-exports.

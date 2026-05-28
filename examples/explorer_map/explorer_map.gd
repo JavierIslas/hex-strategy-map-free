@@ -35,7 +35,10 @@ func _ready() -> void:
 	_scatter_terrain()
 
 	var fog_material := HexRenderer.create_default_fog_material()
-	renderer = HexRenderer.new(HexRenderer.DEFAULT_TERRAIN_COLORS, _cell_icon, {}, HexGrid.HEX_SIZE, Callable(), Callable(), Callable(), Callable(), HexRenderer.REACHABLE_COLOR, HexRenderer.BORDER_COLOR, HexRenderer.BORDER_WIDTH, Callable(), fog_material)
+	renderer = HexRenderer.new(HexPalette.new(), HexGrid.HEX_SIZE, {
+		"cell_icon_fn": _cell_icon,
+		"fog_material": fog_material,
+	})
 	renderer.cell_pressed.connect(_on_cell_pressed)
 
 	fog = FogOfWar.new(grid)

@@ -17,10 +17,9 @@ func _ready() -> void:
 	grid.generate_cells()
 	_scatter_terrain()
 
-	renderer = HexRenderer.new(
-		{}, Callable(), {}, HexGrid.HEX_SIZE,
-		Callable(), _texture_fn
-	)
+	renderer = HexRenderer.new(HexPalette.new(), HexGrid.HEX_SIZE, {
+		"texture_fn": _texture_fn,
+	})
 	renderer.cell_pressed.connect(_on_cell_pressed)
 	for coord in grid.cells:
 		renderer.create_hex_visual(hex_container, coord, HexGrid.offset_to_pixel(coord), grid.cells[coord])

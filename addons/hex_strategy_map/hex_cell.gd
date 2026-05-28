@@ -64,18 +64,18 @@ func has_tag() -> bool:
 
 ## Retorna true si [param player_id] exploró esta celda al menos una vez.
 ## Una celda explorada puede seguir en niebla (EXPLORED) si salió del rango de visión.
+## Hot path: validación inline (player_id < 0) — un wrapper de helper agregaba ~0.15µs/call.
 func is_explored_by(player_id: int) -> bool:
 	if player_id < 0:
-		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
 		return false
 	return _explored_by.get(player_id, false)
 
 
 ## Retorna true si [param player_id] tiene visión activa sobre esta celda.
 ## La visión activa se pierde al llamar clear_visible() — típicamente al inicio de turno.
+## Hot path: validación inline.
 func is_visible_by(player_id: int) -> bool:
 	if player_id < 0:
-		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
 		return false
 	return _visible_by.get(player_id, false)
 
@@ -83,8 +83,7 @@ func is_visible_by(player_id: int) -> bool:
 ## Marca la celda como explorada por [param player_id]. La exploración es permanente.
 ## También llamar mark_visible() si el jugador actualmente tiene visión sobre ella.
 func mark_explored(player_id: int) -> void:
-	if player_id < 0:
-		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+	if not _assert_valid_player_id(player_id):
 		return
 	_explored_by[player_id] = true
 
@@ -92,8 +91,7 @@ func mark_explored(player_id: int) -> void:
 ## Marca la celda como actualmente visible por [param player_id].
 ## No implica que esté explorada — llamar mark_explored() en paralelo si corresponde.
 func mark_visible(player_id: int) -> void:
-	if player_id < 0:
-		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+	if not _assert_valid_player_id(player_id):
 		return
 	_visible_by[player_id] = true
 
@@ -101,23 +99,32 @@ func mark_visible(player_id: int) -> void:
 ## Elimina la visión activa de [param player_id]. La celda queda EXPLORED si fue vista antes.
 ## Llamar al inicio de cada turno antes de recalcular la visibilidad.
 func clear_visible(player_id: int) -> void:
-	if player_id < 0:
-		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+	if not _assert_valid_player_id(player_id):
 		return
 	_visible_by.erase(player_id)
 
 
 ## Retorna el FogState consolidado para [param player_id].
 ## Prioridad: VISIBLE > EXPLORED > HIDDEN. Usar player_id = 0 para single-player.
+## Hot path: lee los dicts directamente (saltea is_visible_by/is_explored_by) y
+## valida inline. Cada wrapper agregaba ~0.15µs/call (medido) y get_fog_state se
+## llama hasta N veces por frame en update_fog.
 func get_fog_state(player_id: int = 0) -> int:
 	if player_id < 0:
-		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
 		return FogState.HIDDEN
-	if is_visible_by(player_id):
+	if _visible_by.get(player_id, false):
 		return FogState.VISIBLE
-	if is_explored_by(player_id):
+	if _explored_by.get(player_id, false):
 		return FogState.EXPLORED
 	return FogState.HIDDEN
+
+
+# Valida player_id >= 0 — emite push_error y retorna false si es inválido.
+static func _assert_valid_player_id(player_id: int) -> bool:
+	if player_id < 0:
+		push_error("HexCell: player_id debe ser >= 0, recibido %d" % player_id)
+		return false
+	return true
 
 
 ## Serializa la celda a un Dictionary compatible con JSON.
