@@ -15,6 +15,7 @@ break is documented below with a before/after snippet.
 | `HexPalette.from_legacy()` removed | Breaking | Internal helper; rarely used externally |
 | `HexRenderer.DEFAULT_*` re-exports removed | Breaking | Anyone reading defaults via `HexRenderer.` |
 | `MapToken.move_to(target, reachable={})` | Non-breaking (new optional arg) | Optional optimization |
+| `TeamRelations` class | Non-breaking (new additive API) | Multi-team / FFA setups |
 | `plugin.cfg` vs `plugin_pro.cfg` clarification | Docs | Plugin packaging |
 
 ---
@@ -241,6 +242,44 @@ The addon ships three `.cfg` files for distribution:
 
 If you only consume the addon, you never need to touch these files. If you
 fork or repackage, `pack.sh` chooses the right one per tier.
+
+---
+
+## 7. New: `TeamRelations` for N-team and FFA setups
+
+This is **non-breaking** — a brand new optional class. Existing 2-player code
+keeps working unchanged because the default behavior is Free-For-All: every
+distinct `owner_id` is its own hostile side.
+
+`MapToken.owner_id` still models which side a unit belongs to. `TeamRelations`
+adds a relationship layer on top so you can express alliances without treating
+every non-current owner as an enemy.
+
+```gdscript
+var relations := TeamRelations.new()
+
+# FFA (default — no setup needed): everyone is hostile to everyone else.
+relations.is_hostile(0, 1)   # true
+relations.is_hostile(0, 0)   # false
+
+# Teams (opt-in): group owners into the same team_id to make them allies.
+relations.set_team(0, 0)
+relations.set_team(1, 0)     # owners 0 and 1 are now allies
+relations.set_team(2, 1)     # owner 2 is a separate side
+relations.is_ally(0, 1)      # true
+relations.is_hostile(0, 2)   # true
+
+# Resolve enemies/allies against the current roster (e.g. TurnManager.player_ids):
+relations.enemies_of(0, [0, 1, 2])   # [2]
+relations.allies_of(0, [0, 1, 2])    # [1]
+```
+
+Replace ad-hoc enemy checks like `other.owner_id != current_player_id` with
+`relations.is_hostile(other.owner_id, current_player_id)`. In FFA the result is
+identical; with teams it stops you from attacking allies. Persist team setups
+via `serialize()` / `TeamRelations.deserialize(data)` (same pattern as
+`TurnManager`). Fog of war stays per-player — shared team vision is not
+included.
 
 ---
 
