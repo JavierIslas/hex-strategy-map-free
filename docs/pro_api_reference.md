@@ -438,16 +438,24 @@ Returns an empty grid (0×0) if `map_width` or `map_height` ≤ 0.
 
 Values between `water_level` and `forest_level` become PLAINS or ROAD (split at 0.0).
 
-#### `static generate_rivers(grid: HexGrid, river_count: int = 3) → void`
+#### `static generate_rivers(grid: HexGrid, river_count: int = 3, seed: int = -1) → void`
 Adds `RIVER` edges to `grid` by performing random walks across the map.
 Rivers avoid already-visited hexes and have 4–10 steps each.
-Uses a deterministic seed based on the grid's current edge count.
+
+With `seed = -1` (default) the seed is derived from the grid's current edge count,
+so results are only reproducible when the grid has no prior edges. Pass `seed >= 0`
+for explicit reproducibility (same grid + same seed → same rivers).
 
 Modifies `grid` in place. Call after `generate_noise_terrain`.
 
-#### `static scatter_locations(grid: HexGrid, count: int, terrain_filter: Array[int] = [], location_type: int = 1) → void`
-Places `count` location markers on random passable cells, optionally restricted to
-`terrain_filter` terrains. Sets `cell.location_type` to `location_type`.
+#### `static scatter_locations(grid: HexGrid, count: int, terrain_filter: Array[int] = [], location_type: int = 1, seed: int = -1) → void`
+Places `count` location markers on random cells, optionally restricted to
+`terrain_filter` terrains. An empty filter accepts every cell (including WATER).
+Sets `cell.location_type` to `location_type`.
+
+With `seed = -1` (default) the seed is derived from the grid's current edge count.
+Pass `seed >= 0` for explicit reproducibility (same grid + same seed → same cells).
+If fewer cells match the filter than `count`, fewer locations are placed.
 
 To use `tag` instead, set `cell.tag` after calling this, or use this result as a
 starting point and modify cells directly.

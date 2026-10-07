@@ -1,6 +1,6 @@
 # Hex Strategy Map
 
-> A hexagonal grid toolkit for Godot 4.6+. Render-agnostic simulation
+> A hexagonal grid toolkit for Godot 4.7+. Render-agnostic simulation
 > (deterministic, JSON-serializable) plus a bundled 2D renderer. Built
 > for turn-based strategy, tactical RPGs / CRPGs, hex-and-counter
 > wargames, hex crawls, roguelikes, and hex puzzles.
@@ -87,7 +87,7 @@ This addon is intentionally narrow. It is **not** the right choice for:
 
 ## Requirements
 
-- Godot 4.6+
+- Godot 4.7+
 - No external dependencies (pure GDScript)
 - 639 automated tests across 25 suites via gdUnit4
 
